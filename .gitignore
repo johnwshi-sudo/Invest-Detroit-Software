@@ -1,0 +1,26 @@
+# --- Borrower data: NEVER commit (repo is public) ---
+samples/
+*.pdf
+*.docx
+!docs/**/*.docx
+data/
+uploads/
+outputs/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

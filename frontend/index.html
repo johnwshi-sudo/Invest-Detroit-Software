@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invest Detroit · AI Underwriting Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand"><span class="logo">ID</span> Invest Detroit <span class="muted">· AI Underwriting Assistant</span></a>
+    <div id="llm-status" class="pill"></div>
+  </header>
+  <main id="app"><div class="loading">Loading…</div></main>
+  <div id="viewer" class="viewer hidden">
+    <div class="viewer-box">
+      <div class="viewer-head">
+        <strong id="viewer-title"></strong>
+        <span>
+          <button id="viewer-prev" class="btn small">‹ Prev</button>
+          <span id="viewer-page"></span>
+          <button id="viewer-next" class="btn small">Next ›</button>
+          <button id="viewer-rot" class="btn small">Rotate</button>
+          <button id="viewer-close" class="btn small">Close</button>
+        </span>
+      </div>
+      <div class="viewer-body"><img id="viewer-img" alt="source page"></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

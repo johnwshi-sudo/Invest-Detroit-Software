@@ -1,0 +1,224 @@
+# Invest Detroit Credit Guidelines — machine-readable transcription.
+# Source: "Credit Guidelines (revised 4-2026)" provided by Invest Detroit. Appendix letters refer to that PDF.
+# Values marked `verified: false` are NOT in the 4/2026 document; they come from wording in sample
+# Investment Summaries (older guideline versions) and must be confirmed with Invest Detroit.
+version: "2026-04"
+
+line_of_business:            # "Guidance – Line of Business"
+  c_and_i:
+    min_revenue: 5000000
+    industries: [industrial, manufacturing]
+  small_business:
+    max_revenue: 5000000
+    industries: [professional services, food and beverage, retail goods and services]
+  cre: "Investment real estate only"
+
+exceptions:
+  oversight_council_trigger: 3   # >3 credit guideline exceptions (excluding asterisked items) -> Oversight Council
+
+# Appendix B — Loan Product Matrix. `counts_toward_oversight: false` = asterisked in the matrix.
+products:
+  predevelopment:
+    label: Pre-Construction (Predevelopment)
+    description: To fund soft costs and fees prior to closing on construction financing
+    purpose: Pre-development or real estate acquisition
+    primary_collateral: CREM - OO or NOO
+    max_ltv: 1.20
+    max_ltc: 0.90
+    max_advance_rate: "120% (As-Is)"
+    min_dscr: null
+    max_amount: 750000
+    min_amount: 100000
+    max_term_months: 24
+    repayment: IO
+    max_amortization_months: 0
+    origination_fee: 0.015
+    draw_period: Ends 60 days before maturity
+  bridge:
+    label: Bridge
+    description: Interim funding
+    primary_collateral: Collateral assignment - FCV
+    max_ltv: null
+    max_ltc: null
+    min_dscr: null
+    max_amount: 2500000
+    min_amount: 100000
+    max_term_months: 36
+    repayment: IO
+    max_amortization_months: 0
+    origination_fee: 0.015
+  nmtc_leverage:
+    label: NMTC Leverage Loan
+    description: Loan to the upper tier in an NMTC structure
+    primary_collateral: Collateral assignment - NMTC
+    min_dscr: 1.05
+    max_amount: 2500000
+    min_amount: 250000
+    max_term_months: 84
+    repayment: IO or IO then P&I
+    max_amortization_months: 300
+    origination_fee: 0.015
+  construction_mini_perm:
+    label: Construction to Mini-Perm
+    description: Financing for moderate rehab or new construction
+    purpose: Constructed improvements
+    primary_collateral: CREM - OO or NOO
+    max_advance_rate: "100% (As-Completed)"
+    max_ltv: 1.00
+    max_ltc: 0.90
+    min_dscr: 1.15
+    max_amount: 2500000
+    min_amount: 250000
+    max_term_months: 84
+    repayment: IO then P&I
+    max_amortization_months: 300
+    origination_fee: 0.015
+    origination_fee_text: "1.50% at close + 0.50% at conversion"
+    draw_period_months: 24
+  cre_term:
+    label: CRE Term
+    description: Medium-term financing for commercial asset classes
+    purpose: External refinance
+    primary_collateral: CREM - OO or NOO
+    max_advance_rate: "90% (As-Stabilized)"
+    max_ltv: 0.90
+    max_ltc: 0.90
+    min_dscr: 1.15
+    max_amount: 2500000
+    min_amount: 250000
+    max_term_months: 60
+    repayment: P&I or IO then P&I
+    max_amortization_months: 300
+    origination_fee: 0.015
+  revolving_loc:
+    label: Revolving LOC
+    description: Formula-based for project specific or working capital needs
+    purpose: Working capital
+    primary_collateral: UCC
+    advance_rates: {marketable_securities: 0.75, accounts_receivable_under_90_days: 0.80, inventory: 0.50}
+    min_dscr: null
+    max_amount: 1000000
+    min_amount: 100000
+    max_term_months: 18
+    repayment: IO
+    max_amortization_months: 0
+    origination_fee: 0.015
+    origination_fee_text: "1.50-2.00% at close + 1.00% at renewal"
+  small_business_term:
+    label: Small Business Term
+    description: Medium-term financing for small businesses
+    purpose: Business acquisition; constructed improvements; M&E; working capital
+    primary_collateral: UCC; M&E
+    advance_rates: {equipment_new: 0.90, equipment_used: 0.85}
+    max_ltv: 0.90
+    max_ltc: 0.90
+    min_dscr: 1.15
+    max_amount: 1000000
+    min_amount: 50000
+    max_term_months: 84
+    repayment: P&I or IO then P&I
+    max_amortization: "Fully amortizing; match remaining useful life"
+    origination_fee: 0.015
+    draw_period_months: 18
+
+all_products:
+  guarantees: "Unlimited from all >= 20% owners"
+  guarantee_ownership_threshold: 0.20
+  min_equity_total: 0.10
+  min_equity_owner: 0.05
+  interest_rate:            # asterisked (does not count toward Oversight Council trigger)
+    predevelopment_snf: [0.04, 0.06]
+    real_estate_secured: [0.075, 0.095]
+    non_real_estate_secured: [0.08, 0.10]
+  prepayment_penalty: None
+  flat_fee_under_100k: 1500   # footnote 3
+  vacant_land_max_advance: 0.65   # footnote 1 (vacant land is a guideline exception)
+  dscr_compensating_factors:      # footnote 2
+    - Lien on the guarantor's personal residence
+    - Business plan to get to threshold
+    - Subordination of all other debt (when ID is senior lender)
+  # Which matrix items are asterisked (excluded from the >3-exception Oversight Council count)
+  not_counted_toward_oversight: [min_amount, draw_period, interest_rate, prepayment_penalty, origination_fee]
+
+# Appendix E — contingency requirements
+contingencies:
+  new_construction: {hard: 0.10, soft: 0.05}
+  rehab_construction: {hard: 0.15, soft: 0.10}
+  tenant_improvement: {hard: 0.15}
+
+# Appendix C — Deal screen & underwriting requirements.
+# when: before_screen_le_250k / before_screen_gt_250k / underwriting ; values: required | if_applicable | false
+document_requirements:
+  - {item: "Financial projections (>= term)", key: projections, before_screen_le_250k: required, before_screen_gt_250k: required}
+  - {item: "Business plan, market description, key management, org chart", key: business_plan, before_screen_le_250k: required, before_screen_gt_250k: required}
+  - {item: "3-5 bullet points stating recommendations for doing the deal", key: recommendation_bullets, before_screen_le_250k: required, before_screen_gt_250k: required}
+  - {item: "Last 3 years existing business tax returns & financial statements", key: historical_financials, before_screen_le_250k: if_applicable, before_screen_gt_250k: if_applicable}
+  - {item: "Borrower and corporate guarantor debt schedule", key: debt_schedule, before_screen_gt_250k: required, underwriting: "required (<= $250K only)"}
+  - {item: "YTD interim financials + prior year comparison (existing business)", key: interim_financials, underwriting: required}
+  - {item: "Guarantor tax returns (3 yrs) + PFS (<= 6 months old)", key: guarantor_financials, underwriting: required}
+  - {item: "Authorization to pull credit/background", key: credit_authorization, underwriting: required}
+  - {item: "Organizational documents for borrower and corporate guarantors", key: org_documents, underwriting: required}
+  - {item: "Historical & projected property expenses w/assumptions", key: property_expenses, underwriting: required, real_estate_only: true}
+  - {item: "Verification of equity source", key: equity_verification, underwriting: required}
+  - {item: "Site visit", key: site_visit, underwriting: required}
+  - {item: "Mission alignment information", key: mission_info, underwriting: required}
+  - {item: "TA Small Business Assessment", key: ta_assessment, underwriting: if_applicable}
+  - {item: "Construction budget", key: construction_budget, underwriting: if_applicable}
+  - {item: "Purchase agreement", key: purchase_agreement, underwriting: if_applicable}
+  - {item: "Draft/executed leases for tenants", key: leases, underwriting: if_applicable}
+  - {item: "Executed lease or draft LOI, including TI allowance details", key: loi, underwriting: if_applicable}
+  - {item: "AR/AP/Inventory lists", key: ar_ap_inventory, underwriting: if_applicable}
+  - {item: "Equipment list & prior appraisal", key: equipment_list, underwriting: if_applicable}
+  - {item: "Rent roll", key: rent_roll, underwriting: if_applicable}
+  - {item: "Prior appraisal and environmental report", key: appraisal, underwriting: if_applicable}
+  - {item: "Intercreditor agreement", key: intercreditor, underwriting: if_applicable}
+  - {item: "SDNA Agreement", key: sdna, underwriting: if_applicable}
+
+# Appendix D — ongoing reporting (used in the draft term sheet)
+reporting_requirements:
+  borrowing_entity:
+    - {item: Tax return, frequency: Annual, due: "30 days of filing"}
+    - {item: Financial statements (CPA-prepared), frequency: Annual, due: "120 days of FYE"}
+    - {item: Financial statements (management), frequency: Annual, due: "90 days of FYE"}
+    - {item: Interim FS, frequency: Quarterly (if applicable), due: "45 days of FQE"}
+  individual_guarantors:
+    - {item: Tax return, frequency: Annual, due: "30 days of filing"}
+    - {item: PFS (with contingent liabilities), frequency: Annual, due: "60 days of FYE"}
+  real_estate:
+    - {item: Rent roll & leasing status report, frequency: "Quarterly during construction -> stabilization", due: "45 days of FQE"}
+    - {item: Rent roll, frequency: Annual after stabilization, due: "30 days of FYE"}
+    - {item: Insurance certificate, frequency: Annual, due: "15 days of execution"}
+    - {item: Property tax bill + receipt, frequency: Annual, due: "15 days of payment"}
+  lines_of_credit:
+    - {item: Borrowing base reporting, frequency: Monthly, due: "10 days of FME"}
+    - {item: Bank statements, frequency: Monthly, due: "20 days of FME"}
+  small_business:
+    - {item: Paid sales taxes & payroll taxes, frequency: Annual, due: "15 days of payment"}
+
+# Appendix A — risk mitigant hierarchy (strongest first)
+mitigants:
+  structural_cash_flow: ["Increased borrower equity or cash injection", "Lower leverage (reduced loan amount)",
+    "Shorter term and/or accelerated amortization", "Payment escrow or borrower-funded interest reserve",
+    "Subordination of existing debt"]
+  collateral_enhancement: ["Additional business asset liens", "Lien on personal residence or real estate",
+    "Additional real estate collateral", "Cash value of life insurance", "Assignment of key person life insurance"]
+  sponsor_credit_support: ["Strong personal or corporate guarantor liquidity",
+    "Verifiable outside income exceeding personal obligations", "Third-party credit enhancement programs"]
+  narrative_future: ["Future projections showing DSCR improvement", "Turnaround or growth business plans",
+    "Market studies or feasibility analyses"]
+
+# CRE underwriting assumptions referenced in the Ballpoint sample ("per Invest Detroit's credit guidelines")
+# but NOT present in the 4/2026 document. Confirm with Invest Detroit.
+cre_underwriting_assumptions:
+  verified: false
+  rent_growth_max: 0.02
+  expense_growth_min: 0.03
+  commercial_vacancy_min: 0.15
+  replacement_reserve_per_sf: 0.50
+  takeout_sizing_dscr: 1.25
+
+# Risk rating (CRE worksheet) — only the anchor descriptions seen in the Ballpoint sample are known.
+risk_rating:
+  verified: false
+  scale: "1 (best) to 5"
+  preliminary_rule: "round(average of category scores)"
