@@ -118,8 +118,32 @@ Harness fix: generator line-of-credit interest now follows the average balance (
 **Status after round 4:** seed-2026 set 16,658/16,660 (2 = NAICS keyword fallback); unit tests and Invest Detroit
 sample validation unchanged.
 
+### Round 5
+- 233 scenarios, 18178 checks, **18177 passed (100.0%)**; misread detection 501/501
+- by category: break_even 410/410, collateral 66/66, consistency 12/12, cre_ds 396/396, cre_noi 990/990, dscr 1676/1676, export 233/233, growth 243/243, income 1524/1524, memo 3094/3094, naics 233/233, naics_fallback 25/26, policy 800/800, projection 3/3, ratios 7410/7410, realism 167/167, risk 132/132, sensitivity 367/367, sources_uses 396/396
+- failing: naics_fallback (1)
+
+#### Round 5 notes — memo wording QA
+New scorer checks: required sections present and in Invest Detroit's order; qualitative claims must agree with the
+numbers ("cash flows are sufficient" / "although tight" / "not sufficient" vs DSCR; "well within the takeout lender's
+terms" only if base DSCR >= 1.25x; "more than enough cash flow" only with >30 pts of vacancy cushion; vacancy
+"at or above / below" the guideline; "per guidelines" rent growth only when it equals the guideline); no "x%-y%"
+ranges, no repeated clauses, no COGS paragraph for businesses without COGS.
+Fixed: CRE sensitivity could say vacancy "can increase to -40%" and crashed when no year had full debt service;
+blended vacancy was always called "conservative" (even below the 15% guideline); "Rents increase by 1% annually per
+Invest Detroit's credit guidelines"; term loans called "construction loan"; "cash flow is thin" at 0.41x (now "does
+not cover debt service"); new weaknesses for a >25% net-worth decline and debt/worth > 4x; gross-margin benchmark
+suppressed when the borrower has no COGS; range and break-even phrasing. NAICS fallback: sector cues (store,
+distributor, manufactures, tutoring) -> 21/24 on the industry set.
+Fresh-seed run (seed 4242, 583 scenarios, before the last wording fixes): 43,039/43,051, all 12 misses NAICS fallback;
+misread detection 834/834. Browser UI test re-run on Kirk's, Ballpoint and a synthetic deal: no errors, edits
+recompute, Word export works.
+
+**Status after round 5:** 18,177/18,178 (1 = NAICS keyword fallback); adversarial suite unchanged (0 false alarms);
+Invest Detroit sample validation unchanged; unit tests pass.
+
 #### Next steps
-- Round 5: memo-level QA beyond numbers (section order vs samples, placeholders only when facts are missing, CRE
-  narrative claims such as "well within takeout terms" only when true) and policy edge cases (term/amortization/
-  minimum amount limits, missing fee, negative NOI, all-residential CRE).
-- Re-run the browser UI test after the engine changes.
+- Ask the user to allow `git push` (blocked by the session's permission check since round 4; commits are local).
+- Possible further rounds: more industries/edge cases in the random generator (seasonal interim periods, fiscal years
+  not ending in December, multiple guarantors with outside income, NMTC / bridge / predevelopment products).
+- Live-extraction scoring on synth/out/pdf once an ANTHROPIC_API_KEY is available.

@@ -103,7 +103,7 @@ def operating_table(r: dict, pids: list[str], title: str, extra_col=None) -> dic
 
 def _range_pct(vals):
     lo, hi = min(vals), max(vals)
-    return f"{lo * 100:.0f}%-{hi * 100:.0f}%" if round(lo * 100) != round(hi * 100) else f"{lo * 100:.0f}%"
+    return f"{lo * 100:.0f}% to {hi * 100:.0f}%" if round(lo * 100) != round(hi * 100) else f"{lo * 100:.0f}%"
 
 
 def financial_narrative(deal, r: dict) -> list:
@@ -137,8 +137,8 @@ def financial_narrative(deal, r: dict) -> list:
     out.append(p(" ".join(sents)))
     # COGS
     cogs_p = [(pid, safe_div(inc[pid]["cogs"], inc[pid]["revenue"])) for pid in hist]
-    vals = [v for _, v in cogs_p]
-    if len(vals) >= 2:
+    vals = [v for _, v in cogs_p if v is not None]
+    if len(vals) >= 2 and any(v > 0 for v in vals):
         rounded = [round(v * 100) for v in vals]
         trend = "steadily increased" if all(b >= a for a, b in zip(rounded, rounded[1:])) and rounded[-1] > rounded[0] else \
                 "steadily decreased" if all(b <= a for a, b in zip(rounded, rounded[1:])) and rounded[-1] < rounded[0] else "fluctuated"
@@ -154,7 +154,7 @@ def financial_narrative(deal, r: dict) -> list:
         steady = (max(nm) - min(nm) < 0.02) and (max(em) - min(em) < 0.02)
         def rng(v):
             r = _range_pct(v)
-            return f"between {r}" if "-" in r else f"approximately {r}"
+            return f"between {r}" if " to " in r else f"approximately {r}"
         out.append(p(f"The margins for net income and EBITDA have {'remained relatively constant' if steady else 'varied'} "
                      f"(net income {rng(nm)} of sales, while EBITDA has maintained a margin of {rng(em)} of sales)."))
     # non-recurring
@@ -282,12 +282,15 @@ def break_even_narrative(r: dict) -> dict:
         lead = "Our analysis indicates that historical operations have been at near break-even, allowing for only slight downward adjustments to gross sales."
     else:
         lead = "Our analysis indicates that historical operations can absorb a moderate decline in gross sales before debt service coverage falls to 1.00x."
+    down = [pid for pid in be if be[pid]["cushion_pct"] >= 0]
+    up = [pid for pid in be if be[pid]["cushion_pct"] < 0]
     parts = []
-    for pid in be:
-        c = be[pid]["cushion_pct"]
-        parts.append(f"sales could decline {c * 100:.1f}% in {_narr_label(s, pid)}" if c >= 0 else
-                     f"sales would need to increase {-c * 100:.1f}% in {_narr_label(s, pid)}")
-    detail = "For DSCR to reach 1.00x, " + _join(parts) + "."
+    for ids, verb, sign in ((down, "could decline", 1), (up, "would need to increase", -1)):
+        if ids:
+            pcts = _join([f"{sign * be[x]['cushion_pct'] * 100:.1f}%" for x in ids])
+            when = _join([_narr_label(s, x) for x in ids])
+            parts.append(f"sales {verb} {pcts} in {when}" + (", respectively" if len(ids) > 1 else ""))
+    detail = "Before DSCR reaches 1.00x, " + "; ".join(parts) + "." if not up else "For DSCR to reach 1.00x, " + "; ".join(parts) + "."
     return p(f"{lead} {detail} Our model adjusts the cost of goods sold so that gross profit margins are consistent with historical levels. "
              "Operating expenses are treated as a fixed cost and are not adjusted to sales.")
 
@@ -396,7 +399,18 @@ def strengths_weaknesses(deal, r, policy, bench) -> tuple[list, list]:
         W.append(txt + ("; however, this is mitigated by " + " and ".join(mit) + "." if mit else "."))
     mind = next((e for e in policy["exceptions"] if e["item"].startswith("Min DSCR")), None)
     if mind:
-        W.append(f"Debt service coverage of {mind['actual']} is below the {mind['requirement'].replace('>= ', '')} guideline minimum; cash flow is thin.")
+        last_d = inc[annual[-1]]["dscr"] if annual else None
+        tail = "cash flow does not cover debt service." if last_d is not None and last_d < 1 else "cash flow is thin."
+        W.append(f"Debt service coverage of {mind['actual']} is below the {mind['requirement'].replace('>= ', '')} guideline minimum; {tail}")
+    bsp = r["bs_periods"]
+    if len(bsp) >= 2:
+        nw0, nw1 = r["ratios"][bsp[0]]["net_worth"], r["ratios"][bsp[-1]]["net_worth"]
+        chg = r.get("net_worth_change")
+        if chg is not None and chg < -0.25:
+            W.append(f"Net worth declined {-chg * 100:.0f}%, from {fmt_money(nw0)} to {fmt_money(nw1)}.")
+        lev = r["ratios"][bsp[-1]]["debt_to_worth"]
+        if lev is not None and lev > 4:
+            W.append(f"Leverage is high: debt to worth of {fmt_x(lev)} at {bsp[-1]}.")
     for pid in hist:
         if inc[pid]["nonrecurring_income"] and inc[pid]["dscr_ex_nonrecurring"] is not None and inc[pid]["dscr_ex_nonrecurring"] < 1:
             W.append(f"{_narr_label(s, pid)} coverage relied on {fmt_money(inc[pid]['nonrecurring_income'])} of non-recurring income "

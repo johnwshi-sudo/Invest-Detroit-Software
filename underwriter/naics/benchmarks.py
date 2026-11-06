@@ -115,6 +115,15 @@ def keyword_candidates(text: str, k: int = 5, exclude: str = "") -> list[dict]:
     qb = set(zip(qt, qt[1:]))
     if not q:
         return []
+    raw = (text or "").lower()
+    sector_bonus = {}
+    for words, sectors in ((r"\b(store|stores|shop|boutique|retailer|retail|grocery)\b", ("44", "45")),
+                           (r"\b(distributor|distributes|distribution|wholesaler|wholesale)\b", ("42",)),
+                           (r"\b(manufactur\w*|produces|fabricat\w*|molder|molding|machining|assembl\w*)\b", ("31", "32", "33")),
+                           (r"\b(tutoring|school|education|training|instruction)\b", ("61",))):
+        if re.search(words, raw):
+            for sec in sectors:
+                sector_bonus[sec] = sector_bonus.get(sec, 0) + 1
     scored = []
     for code, e in by_code.items():
         common = q & e["tokens"]
@@ -123,6 +132,7 @@ def keyword_candidates(text: str, k: int = 5, exclude: str = "") -> list[dict]:
         s = sum(math.log(N / df[w]) * (1.6 if w in e["title_tokens"] else 1.0) for w in common)
         s += 2.5 * len(qb & e["bigrams"])
         s /= math.log(len(e["tokens"]) + 8)
+        s *= 1 + 0.35 * sector_bonus.get(code[:2], 0)
         if s > 0:
             best = max(e["phrases"], key=lambda ph: len(q & set(_tokens(ph))))
             scored.append((s, code, best))
@@ -216,7 +226,7 @@ def compare_small_business(analysis: dict, code: Optional[str]) -> dict:
         bs = analysis["balance_sheet"].get(last)
         inv_days_cogs = safe_div(bs["current_assets"]["inventory"] * 360, i["cogs"]) if bs else None
         rows = [
-            ("Gross margin", safe_div(i["gross_profit"], i["revenue"]), b["gross_margin"], True, "pct"),
+            ("Gross margin", safe_div(i["gross_profit"], i["revenue"]) if i["cogs"] else None, b["gross_margin"], True, "pct"),
             ("Net margin", safe_div(i["net_income"], i["revenue"]), b["net_margin"], True, "pct"),
             ("EBITDA margin", safe_div(i["ebitda"], i["revenue"]), b["ebitda_margin"], True, "pct"),
             ("EBITDA / interest", r.get("interest_coverage"), b["interest_coverage_ebitda"], True, "x"),

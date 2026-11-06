@@ -72,9 +72,16 @@ def cash_flow_notes(deal, r: dict) -> list[str]:
     notes = []
     rc = r.get("rent_cagr", {})
     if rc:
-        g = max(v for v in rc.values() if v is not None)
-        notes.append(f"Rents increase by {g * 100:.0f}% annually" + (" per Invest Detroit's credit guidelines." if g <= A["rent_growth_max"] + 5e-4 else
-                     f"; Invest Detroit caps rent growth at {A['rent_growth_max'] * 100:.0f}%."))
+        vals = [v for v in rc.values() if v is not None]
+        g = max(vals) if vals else None
+        cap = A["rent_growth_max"]
+        if g is not None:
+            if abs(g - cap) <= 5e-4:
+                notes.append(f"Rents increase by {g * 100:.1f}% annually per Invest Detroit's credit guidelines.")
+            elif g < cap:
+                notes.append(f"Rents increase by {g * 100:.1f}% annually per the borrower's projections (below Invest Detroit's {cap * 100:.0f}% maximum).")
+            else:
+                notes.append(f"Rents increase by {cap * 100:.0f}% annually per Invest Detroit's credit guidelines (borrower projected {g * 100:.1f}%).")
     vb = r["vacancy_by_line"]
     for k, v in vb.items():
         if v is not None:
@@ -82,15 +89,23 @@ def cash_flow_notes(deal, r: dict) -> list[str]:
     si = r["stabilized_index"]
     if si is not None and r["blended_vacancy"][si] is not None:
         ap = deal.cre.appraisal.vacancy_estimate
-        notes.append(f"Blended stabilized vacancy of {r['blended_vacancy'][si] * 100:.1f}% (weighted by gross rent) is considered conservative relative to "
-                     f"Invest Detroit's {A['commercial_vacancy_min'] * 100:.0f}% commercial vacancy guideline"
-                     + (f" and the appraiser's {ap * 100:.0f}% estimate." if ap else "."))
+        bv, gl = r["blended_vacancy"][si], A["commercial_vacancy_min"]
+        cmp_gl = "at or above" if bv >= gl - 5e-4 else "below"
+        cmp_ap = ("at or above" if bv >= ap - 5e-4 else "below") if ap is not None else None
+        verdict = " and is considered conservative." if cmp_gl == "at or above" and cmp_ap in (None, "at or above") else "."
+        notes.append(f"Blended stabilized vacancy of {bv * 100:.1f}% (weighted by gross rent) is {cmp_gl} Invest Detroit's {gl * 100:.0f}% commercial "
+                     f"vacancy guideline" + (f" and {cmp_ap} the appraiser's {ap * 100:.0f}% estimate" if ap is not None else "") + verdict
+                     + (" The guideline applies to commercial space; residential vacancy is the borrower's assumption." if any(k == "residential_vacancy" for k in vb) else ""))
     if r["year1_general_vacancy"]:
         notes.append(f"{r['year1_general_vacancy'] * 100:.1f}% total vacancy in {r['years'][0]} based on borrower's projections and anticipated time for leasing activities.")
     ec = r.get("expense_cagr", {})
     if ec:
-        g = min(v for v in ec.values() if v is not None)
-        notes.append(f"Expenses increase by {round(g * 100):.0f}% annually" + (" per Invest Detroit's credit guidelines." if g >= A["expense_growth_min"] - 5e-4 else "."))
+        vals = [v for v in ec.values() if v is not None]
+        g = min(vals) if vals else None
+        fl = A["expense_growth_min"]
+        if g is not None:
+            notes.append(f"Expenses increase by at least {fl * 100:.0f}% annually per Invest Detroit's credit guidelines" +
+                         (f" (borrower projected as little as {g * 100:.1f}%; increased to {fl * 100:.0f}%)." if g < fl - 5e-4 else "."))
     for nt in r["notes"]:
         notes.append(nt["text"])
     sz = r.get("sizing")
@@ -308,12 +323,26 @@ def build_cre_memo(deal, r, policy, naics, bench, risk) -> dict:
     if sens:
         stbl, _ = projection_table(r, "sens", "Sensitivity Analysis", deal)
         line = r["labels"].get(sens["line"], sens["line"]).lower().replace("less: ", "").replace(" loss", "")
-        sb = ["Sensitized case assumes the loans are not refinanced by a take-out lender and the proposed construction loan remains.",
-              f"{line[0].upper() + line[1:]} was adjusted to get to 1.00x DSC. {line[0].upper() + line[1:]} can increase to "
-              f"{sens['min_stabilized_pct'] * 100:.1f}%-{sens['max_stabilized_pct'] * 100:.1f}% in the stabilized years for DSC to be 1.00x.",
-              "Sensitized case above demonstrates that the projections would generate more than enough cash flow to cover the debt service on the proposed construction loan."
-              if sens["min_stabilized_pct"] and sens["min_stabilized_pct"] > 0.30 else
-              "The sensitized case shows limited cushion on the proposed construction loan."]
+        kind = "construction loan" if deal.terms.product in ("construction_mini_perm", "predevelopment") else "loan"
+        Line = line[0].upper() + line[1:]
+        sb = [("Sensitized case assumes the loans are not refinanced by a take-out lender and the proposed " + kind + " remains.")
+              if deal.terms.takeout_loan else "Sensitized case tests the proposed " + kind + " at 1.00x DSC."]
+        lo, hi = sens["min_stabilized_pct"], sens["max_stabilized_pct"]
+        si_ = r["stabilized_index"]
+        cur = r["vacancy_by_line"].get(sens["line"])
+        if lo is None:
+            sb.append("No stabilized year has a full year of debt service on the proposed loan, so a break-even vacancy is not computed.")
+        elif lo <= 0:
+            sb.append(f"Even with no {line}, net operating income does not cover debt service on the proposed {kind} in every stabilized year "
+                      "(DSC below 1.00x); repayment depends on other sources.")
+        else:
+            rng = f"{lo * 100:.1f}%" if abs(hi - lo) < 0.0005 else f"{lo * 100:.1f}% to {hi * 100:.1f}%"
+            sb.append(f"{Line} was adjusted to get to 1.00x DSC. {Line} can increase to {rng} in the stabilized years for DSC to be 1.00x"
+                      + (f" (projected: {cur * 100:.1f}%)." if cur is not None else "."))
+            margin = lo - (cur or 0)
+            sb.append(f"Sensitized case above demonstrates that the projections would generate more than enough cash flow to cover the debt service on "
+                      f"the proposed {kind}." if margin > 0.30 else
+                      f"The sensitized case shows limited cushion on the proposed {kind} ({margin * 100:.1f} points of additional {line} before DSC reaches 1.00x).")
         if r.get("break_even_occupancy"):
             sb.append(f"Break-even occupancy on the base case is {r['break_even_occupancy'] * 100:.1f}% of gross potential rent in {r['years'][si]}.")
         secs.append(section("sensitivity", "Sensitivity Analysis", [stbl, bullets(sb)]))

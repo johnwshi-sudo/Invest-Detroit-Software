@@ -232,6 +232,9 @@ def memo_qa(spec, deal, exp, out, sc: Score):
     sc.flag("memo", "every number in computed narrative traces to a value", not bad, f"{n_tok} numbers; untraceable: {bad[:8]}")
     joined = " ".join(texts)
     sc.flag("memo", "no negative 'decline' wording", not re.search(r"decline -|decline \(-", joined), "")
+    sc.flag("memo", "no 'from 0% of sales' COGS paragraph", "from 0% of sales" not in joined, "")
+    sc.flag("memo", "ranges read 'x% to y%'", not re.search(r"\d%-\-?\d", joined), "")
+    sc.flag("memo", "no repeated break-even clauses", joined.count("would need to increase") <= 1 and joined.count("could decline") <= 1, "")
     sc.flag("memo", "no '-0.0%' / NaN artifacts", "-0.0%" not in joined and not re.search(r"\bnan\b|\bNone\b(?! identified)", joined), "")
     # direction words in revenue sentences match the numbers stated
     def _mv(num, unit):
@@ -247,6 +250,7 @@ def memo_qa(spec, deal, exp, out, sc: Score):
     if "is improving" in joined and spec["kind"] == "small_business":
         lev = [out["analysis"]["ratios"][p]["debt_to_worth"] for p in out["analysis"]["bs_periods"]]
         sc.flag("memo", "'leverage improving' is true", lev[-1] < lev[0], str(lev))
+    claim_checks(spec, exp, out, joined, sc)
     hdr = out["memo"]["sections"][0]["blocks"][0]
     pol_items = {e["item"] for e in out["policy"]["exceptions"] if e["kind"] == "policy"}
     sc.flag("memo", "page-1 policy exceptions match", set(hdr["policy_exceptions"]) - {"None identified"} == pol_items, str(hdr["policy_exceptions"]))
@@ -259,6 +263,57 @@ def memo_qa(spec, deal, exp, out, sc: Score):
         sc.flag("export", "Word export opens and names borrower", spec["name"] in txt and len(d.tables) >= 5, f"{len(d.tables)} tables")
     except Exception as e:  # noqa: BLE001
         sc.flag("export", "Word export", False, str(e))
+
+
+SB_ORDER = ["mission", "overview", "customers", "request", "banking", "management", "financial_review", "benchmarking", "collateral",
+            "guarantors", "weaknesses", "strengths", "compliance", "term_sheet", "exhibit_d", "exhibit_e", "documents", "review_flags"]
+CRE_ORDER = ["exposure", "mission", "overview", "borrower", "request", "repayment", "sources_uses", "cash_flow", "rent_roll", "leasing",
+             "sensitivity", "benchmarking", "team", "principals", "property_manager", "status", "collateral", "compliance", "term_sheet",
+             "exhibit_c", "risk_rating", "documents", "review_flags"]
+
+
+def claim_checks(spec, exp, out, joined, sc: Score):
+    """Qualitative claims in the narrative must agree with the numbers."""
+    from underwriter.guidelines import load_guidelines
+    G = load_guidelines()
+    keys = [s["key"] for s in out["memo"]["sections"]]
+    order = SB_ORDER if spec["kind"] == "small_business" else CRE_ORDER
+    present = [k for k in order if k in keys]
+    required = [k for k in order if k not in ("exposure", "exhibit_d", "exhibit_e", "customers", "banking")]
+    sc.flag("memo", "required sections present", all(k in keys for k in required), str([k for k in required if k not in keys]))
+    sc.flag("memo", "sections in Invest Detroit order", [k for k in keys if k in order] == present, str(keys))
+    allp = " ".join(b.get("text", "") + " " + " ".join(b.get("items", [])) for s in out["memo"]["sections"] for b in s["blocks"])
+    if spec["kind"] == "small_business":
+        A = out["analysis"]
+        ds = [A["income"][p]["dscr"] for p in A["hist"] if A["income"][p]["dscr"] is not None]
+        mind = G["products"][spec["product"]].get("min_dscr") or 1.15
+        if ds:
+            m = min(ds)
+            if "Cash flows are sufficient" in joined:
+                sc.flag("memo", "'cash flows are sufficient' is true", m >= mind - 1e-9, f"min DSCR {m:.3f}")
+            if "Although tight" in joined:
+                sc.flag("memo", "'although tight' is true", 1.0 <= m < mind, f"min DSCR {m:.3f}")
+            if "were not sufficient" in joined:
+                sc.flag("memo", "'not sufficient' is true", m < 1.0, f"min DSCR {m:.3f}")
+        return
+    A = out["analysis"]
+    st = exp["stab"]
+    target = G["cre_underwriting_assumptions"]["takeout_sizing_dscr"]
+    if "well within the takeout lender" in allp:
+        sc.flag("memo", "'well within takeout terms' is true", st is not None and exp["dscr_base"][st] is not None and exp["dscr_base"][st] >= target - 0.005,
+                f"base DSCR {exp['dscr_base'][st] if st is not None else None}")
+    months = [int(spec["ds_months"].get(str(y), 12)) for y in exp["years"]]
+    sens = [exp["sens_pct"][i] for i in range(len(months)) if months[i] == 12 and exp["sens_pct"][i] is not None]
+    if "more than enough cash flow" in allp:
+        cur = A["vacancy_by_line"].get(exp["sens_line"]) or 0
+        sc.flag("memo", "'more than enough cash flow' is true", bool(sens) and min(sens) - cur > 0.30, f"min break-even vacancy {min(sens) if sens else None}")
+    sc.flag("memo", "no negative break-even vacancy wording", not re.search(r"can increase to -", allp), "")
+    m = re.search(r"Blended stabilized vacancy of ([\d.]+)% \(weighted by gross rent\) is (at or above|below) Invest Detroit's (\d+)%", allp)
+    if m:
+        v, word, gl = float(m.group(1)) / 100, m.group(2), float(m.group(3)) / 100
+        sc.flag("memo", "vacancy vs guideline wording correct", (v >= gl - 5e-4) == (word == "at or above"), m.group(0)[:100])
+    for m in re.finditer(r"Rents increase by ([\d.]+)% annually per Invest Detroit's credit guidelines\.", allp):
+        sc.flag("memo", "'per guidelines' rent growth equals the guideline", abs(float(m.group(1)) / 100 - G["cre_underwriting_assumptions"]["rent_growth_max"]) < 0.0006, m.group(0))
 
 
 def misread_test(spec, deal, rng) -> tuple[bool, str] | None:

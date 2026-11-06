@@ -409,6 +409,9 @@ def analyze_small_business(deal: Deal) -> dict:
         # compare debt service lines to FS-note payments
         _check_note_payments(deal, s, flags)
 
+    nw_change = None
+    if len(bs_pids) >= 2 and bs[bs_pids[0]]["net_worth"] > 0:
+        nw_change = bs[bs_pids[-1]]["net_worth"] / bs[bs_pids[0]]["net_worth"] - 1
     for pid, b in bs.items():
         if b["net_worth"] <= 0:
             flags.append(Flag("warning", "analysis", f"{pid}: net worth is negative ({fmt_money(b['net_worth'])}); debt-to-worth, return on equity "
@@ -419,7 +422,7 @@ def analyze_small_business(deal: Deal) -> dict:
 
     return {"spread": s, "hist": hist, "proj": proj, "income": inc, "debt_service": ds, "growth": growth,
             "annualized": annualized, "aggregate": aggregate, "balance_sheet": bs, "bs_periods": bs_pids,
-            "ratios": ratios, "tnw": tnw, "break_even": be, "debt_schedule": sched, "debt_schedule_date": latest,
+            "ratios": ratios, "tnw": tnw, "break_even": be, "net_worth_change": nw_change, "debt_schedule": sched, "debt_schedule_date": latest,
             "collateral": collateral, "flags": flags}
 
 
