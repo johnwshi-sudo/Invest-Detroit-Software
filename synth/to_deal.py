@@ -78,7 +78,8 @@ def present_sb(spec: dict, truth: dict) -> dict:
         return {**ca, "tca": tca, "fa_items": fa_items, "accum": acc, "nfa": nfa, "other_assets": oa, "ta": ta,
                 "ap": ap, "accrued": accr, "loc": loc, "cpltd": cpltd, "ltd": ltd, "tcl": tcl, "tl": tl,
                 "common_stock": stock, "current_year_income": ni_r, "retained_earnings": equity - stock - ni_r, "equity": equity,
-                "debt_balances": {k: R(v) for k, v in b["debt_balances"].items()}}
+                "debt_balances": {k: R(v) for k, v in b["debt_balances"].items()},
+                "debt_current": {k: R(v) for k, v in b.get("debt_current", {}).items()}}
 
     for y in spec["years"]:
         pres["periods"].append(_period(y))
@@ -184,6 +185,8 @@ def sb_deal(spec: dict):
     for I in pres["is"].values():
         I["nonrec_label"] = nonrec_label
     pages = {"is": 4, "bs": 3, "cf": 5, "opex": 9, "dep": 5 if q.get("dep_location") == "cf_only" else 9}
+    if q.get("no_bs_first_year"):
+        pres["bs"].pop(f"FY{spec['years'][0]}", None)
     docs, financials = [], []
     ys = [f"FY{y}" for y in spec["years"]]
     assurance = q.get("assurance", "review")
@@ -201,10 +204,11 @@ def sb_deal(spec: dict):
         L = []
         for pid in g:
             factor = None
-            if q.get("split_docs") and gi == 0 and len(groups) > 1 and pid == groups[0][-1]:
+            later = any(pid in g2 for g2 in groups[gi + 1:])
+            if q.get("split_docs") and gi == 0 and later:
                 factor = 0.985          # older document reports lower sales; newer statements restate them
                 restated[pid] = doc
-            L += sb_line_items(pid, pres["is"][pid], pres["bs"][pid], doc, pages, factor)
+            L += sb_line_items(pid, pres["is"][pid], pres["bs"].get(pid), doc, pages, factor)
         per = [p for p in pres["periods"] if p["id"] in g]
         financials.append({"company_name": spec["name"], "doc": doc, "statement_info": info, "periods": per, "line_items": L,
                            "debts": debts_all if gi == len(groups) - 1 else [], "notes": []})
@@ -258,11 +262,13 @@ def _debts(spec, truth, pres):
     last = pres["periods"][-1]
     bs_ids = [p["id"] for p in pres["periods"] if p["id"] in pres["bs"]]
     for d in truth["debts"]:
-        bals = [{"period_id": pid, "value": pres["bs"][pid]["debt_balances"].get(d["creditor"], 0.0), "page": 7} for pid in bs_ids[-1:]]
+        bals = [{"period_id": pid, "value": pres["bs"][pid]["debt_balances"].get(d["creditor"], 0.0), "page": 7}
+                for pid in (bs_ids if d.get("is_id") else bs_ids[-1:])]
         last_y = spec["years"][-1]
         chg = -d["hist"][last_y]["principal"] if last_y in d["hist"] else None
         out.append({"creditor": d["creditor"], "kind": d["kind"], "balances": bals, "interest_rate": d["rate"],
                     "monthly_payment": round(d["monthly_payment"], 2), "subordinated": d["subordinated"], "related_party": d["related"],
+                    "is_invest_detroit": bool(d.get("is_id")),
                     "cash_flow_change": round(chg) if chg is not None and not pres.get("interim") else None, "page": 7})
     loc_ids = [p for p in bs_ids if pres["bs"][p]["loc"]]
     if loc_ids:

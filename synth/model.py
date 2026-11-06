@@ -93,13 +93,14 @@ def build_small_business(spec: dict) -> dict:
         other_assets = fin.get("other_assets", 0.0)
         equity = prev_equity + ni - dist + fin.get("contributions", [0] * n)[t]
         cpltd = ltd = 0.0
-        bal_by = {}
+        bal_by, cur_by = {}, {}
         for d in debts:
             # principal due next 12 months
             _, pnext, _ = amortize_year(d["bal"], d["rate"], d["monthly_payment"], 12, d.get("io", False))
             cpltd += pnext
             ltd += d["bal"] - pnext
             bal_by[d["creditor"]] = d["bal"]
+            cur_by[d["creditor"]] = pnext
         liab_eq = ap + accrued + loc_bal + cpltd + ltd + equity
         net_fa = fa_gross - accum
         cash = liab_eq - (ar + inv + prepaid + other_rec + net_fa + other_assets)
@@ -114,7 +115,7 @@ def build_small_business(spec: dict) -> dict:
                         "total_assets": cash + ar + inv + prepaid + other_rec + net_fa + other_assets,
                         "ap": ap, "accrued": accrued, "loc": loc_bal, "cpltd": cpltd, "ltd": ltd,
                         "total_liabilities": ap + accrued + loc_bal + cpltd + ltd, "equity": equity,
-                        "debt_balances": bal_by}
+                        "debt_balances": bal_by, "debt_current": cur_by}
         prev_equity = equity
     out["debts"] = [{k: v for k, v in d.items() if k != "bal"} for d in debts]
     out["fa_classes"] = fin.get("fa_classes", {"Equipment": 1.0})
@@ -150,19 +151,20 @@ def build_small_business(spec: dict) -> dict:
         accrued = last["accrued"]
         equity = prev_equity + ni
         cpltd = ltd = 0.0
-        bal_by = {}
+        bal_by, cur_by = {}, {}
         for d in debts:
             _, pnext, _ = amortize_year(d["bal"], d["rate"], d["monthly_payment"], 12, d.get("io", False))
             cpltd += pnext
             ltd += d["bal"] - pnext
             bal_by[d["creditor"]] = d["bal"]
+            cur_by[d["creditor"]] = pnext
         net_fa = fa_gross - accum
         cash = ap + accrued + loc_bal + cpltd + ltd + equity - (ar + inv + last["prepaid"] + last["related_receivable"] + net_fa + last["other_assets"])
         out["interim"]["bs"] = {"cash": cash, "ar": ar, "inventory": inv, "prepaid": last["prepaid"], "related_receivable": last["related_receivable"],
                                 "fa_gross": fa_gross, "accum_dep": accum, "net_fa": net_fa, "other_assets": last["other_assets"],
                                 "total_assets": cash + ar + inv + last["prepaid"] + last["related_receivable"] + net_fa + last["other_assets"],
                                 "ap": ap, "accrued": accrued, "loc": loc_bal, "cpltd": cpltd, "ltd": ltd,
-                                "total_liabilities": ap + accrued + loc_bal + cpltd + ltd, "equity": equity, "debt_balances": bal_by}
+                                "total_liabilities": ap + accrued + loc_bal + cpltd + ltd, "equity": equity, "debt_balances": bal_by, "debt_current": cur_by}
     # company forecast (projection periods, income statement only)
     if s.get("forecast"):
         f = s["forecast"]

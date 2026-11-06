@@ -60,7 +60,36 @@ Scorer/oracle bugs fixed along the way: Flag access, "nan" matching "financial",
 **Status after round 2:** 23 hand-designed scenarios, 1,883 checks, 100% pass; 17/17 injected misreads caught;
 Invest Detroit sample validation unchanged (0 unexplained differences); 15 unit tests pass.
 
+#### Rendered PDFs
+`python -m synth.render` writes 80 PDFs for the 23 hand-designed packages to synth/out/pdf/ (CPA letter, statements,
+schedules, notes, tax-return style, interim/forecast, business plans, CRE projections/rent roll/budget/appraisal).
+~1/3 are rasterized "scans"; one projection page is rotated 90°. Each folder has answer_key.deal.json for scoring
+live extraction later.
+
+### Round 3
+- 233 scenarios, 16632 checks, **16628 passed (100.0%)**; misread detection 501/501
+- by category: break_even 413/413, collateral 66/66, consistency 15/16, cre_ds 396/396, cre_noi 990/990, dscr 1632/1632, export 233/233, growth 246/246, income 1458/1458, memo 1486/1486, naics 233/233, naics_fallback 17/20, policy 800/800, projection 3/3, ratios 7581/7581, realism 167/167, risk 132/132, sensitivity 364/364, sources_uses 396/396
+- failing: naics_fallback (3), consistency (1)
+
+#### Round 3 notes (233 scenarios = 23 designed + 150 random small business + 60 random CRE, seed 2026)
+Bugs found and fixed:
+1. Negative net worth: debt/worth, ROE and sales/worth were printed as meaningless numbers (e.g. -118x); now "n/a" with
+   a warning, and the narrative says net worth is negative instead of "leverage is improving".
+2. Existing Invest Detroit note shown as quasi-equity: its current portion stayed in CPLTD AND moved to net worth
+   (double count) -> understated current ratios, negative LTD/fixed assets. Now split by the note's payment terms
+   (warning if terms are missing).
+3. NAICS keyword fallback: place names in business names ("Brush Park" -> "aircraft parking"), "except" clauses and
+   abbreviations (IT, HVAC) caused misses. Fallback 4-digit accuracy on the 24 industry descriptions: 7/24 -> 20/24.
+   It is only used when document reading gives no code, and it is always flagged for confirmation.
+4. Replacement reserves no longer get the expense-growth floor before the reserve top-up (misleading note).
+Judgment calls documented: CAM reimbursements are capped at the 2% rent-growth rate like rents (Ballpoint practice);
+max-LTV test uses combined LTV when senior liens exist (conservative; Kirk's sample quoted LTV without the senior lien).
+Harness fixes: restatement only generated when a year appears in two documents; oracle uses CLTV.
+
+**Status after round 3:** 16,631 checks, 16,628 pass; the 3 misses are the keyword-only NAICS fallback (17/20, scored
+separately). Misread detection 501/501. Invest Detroit samples unchanged; unit tests pass.
+
 #### Next steps
-- Render the synthetic PDFs (synth/render.py) — needed for future live-extraction tests.
-- Round 3+: procedurally generated borrowers (hundreds), edge cases (no debt, negative equity, missing balance
-  sheet, existing Invest Detroit loan, interest-only, $000s), several misreads per case incl. undetectable ones.
+- Round 4: fresh seed and 2-3x more cases to check the fixes generalize (no tuning to one seed).
+- Adversarial extraction errors: $000s not converted, misreads on lines no total covers (depreciation, officer pay),
+  duplicated documents, statements without subtotals. Add sanity checks where an underwriter would catch them.

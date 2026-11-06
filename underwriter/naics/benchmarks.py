@@ -27,7 +27,9 @@ REALISM = {
     "ratio_far_factor": 2.0,         # borrower ratio more than 2x / less than 0.5x industry -> note
 }
 
-STOP = set("and or of the for in to a an with except other all nec products product services service".split())
+STOP = set(("and or of the for in to a an with except other all nec products product services service operates operate operating "
+            "provides provide providing offers offer sells sell selling company firm business full neighborhood local regional "
+            "customers customer clients client based located detroit michigan new develops develop").split())
 
 
 @lru_cache(maxsize=1)
@@ -51,8 +53,25 @@ def _stem(w: str) -> str:
     return w
 
 
+ABBREV = {"it": "information technology computer", "hvac": "heating ventilation air conditioning", "cnc": "computer numerical control machining",
+          "saas": "software publishers subscription", "pt": "physical therapy", "ev": "electric vehicle", "3pl": "third party logistics"}
+
+
+def _clean_phrase(s: str) -> str:
+    """Drop exclusion clauses: 'Delicatessens (except grocery store...)' must not match 'grocery store'."""
+    s = re.sub(r"\((?:except|i\.e\.|e\.g\.)[^)]*\)", " ", s or "", flags=re.I)
+    return re.split(r"\bexcept\b", s, flags=re.I)[0]
+
+
 def _tokens(s: str) -> list[str]:
-    return [_stem(w) for w in re.findall(r"[a-z]+", (s or "").lower()) if w not in STOP and len(w) > 2]
+    words = re.findall(r"[a-z0-9]+", (s or "").lower())
+    out = []
+    for w in words:
+        if w in ABBREV:
+            out += ABBREV[w].split()
+        elif w not in STOP and len(w) > 2 and not w.isdigit():
+            out.append(w)
+    return [_stem(w) for w in out]
 
 
 @lru_cache(maxsize=1)
@@ -61,8 +80,10 @@ def _index():
     data = naics_data()
     by_code: dict[str, dict] = {}
     for code, phrase in data["index"]:
-        e = by_code.setdefault(code, {"tokens": set(), "phrases": []})
-        e["tokens"] |= set(_tokens(phrase))
+        e = by_code.setdefault(code, {"tokens": set(), "phrases": [], "bigrams": set()})
+        tk = _tokens(_clean_phrase(phrase))
+        e["tokens"] |= set(tk)
+        e["bigrams"] |= set(zip(tk, tk[1:]))
         e["phrases"].append(phrase)
     for code, e in by_code.items():
         e["title_tokens"] = set(_tokens(data["codes"].get(code, "")))
@@ -73,18 +94,34 @@ def _index():
     return by_code, df, len(by_code)
 
 
-def keyword_candidates(text: str, k: int = 5) -> list[dict]:
+PLACES = ["Detroit", "Michigan", "Wayne County", "Corktown", "Midtown", "Downtown", "New Center", "Brush Park", "Palmer Park",
+          "Rosedale Park", "Indian Village", "Lafayette Park", "Belle Isle", "Eastern Market", "Mexicantown", "Southwest", "Delray",
+          "North End", "Eastside", "Westside", "Brightmoor", "Osborn", "Jefferson", "Chalmers", "Woodward", "Gratiot", "Livernois",
+          "Grand River", "Michigan Avenue", "Fenkell", "Conant", "Hamtramck", "Highland Park", "Dearborn", "Riverbend", "Rouge Park",
+          "Lakeview", "Avenue of Fashion", "University District", "Boston Edison", "Virginia Park", "Islandview", "Jefferson Chalmers"]
+SUFFIXES = r"\b(llc|l\.l\.c\.|inc|incorporated|co|company|corp|corporation|group|holdings|enterprises|ltd|pllc|pc)\b\.?"
+
+
+def keyword_candidates(text: str, k: int = 5, exclude: str = "") -> list[dict]:
+    """Rank NAICS codes for a business description. Detroit place names and corporate suffixes are removed first
+    (e.g. 'Brush Park' must not match 'aircraft parking'); industry words in a business name are kept."""
     import math
     by_code, df, N = _index()
-    q = set(_tokens(text))
+    for place in sorted(PLACES, key=len, reverse=True):
+        text = re.sub(rf"\b{re.escape(place)}\b", " ", text, flags=re.I)
+    text = re.sub(SUFFIXES, " ", text, flags=re.I)
+    qt = _tokens(text)
+    q = set(qt)
+    qb = set(zip(qt, qt[1:]))
     if not q:
         return []
     scored = []
     for code, e in by_code.items():
         common = q & e["tokens"]
-        if len(common) < 2 and len(q) > 2:
+        if not common or (len(common) < 2 and len(q) > 2 and not (common & e["title_tokens"])):
             continue
         s = sum(math.log(N / df[w]) * (1.6 if w in e["title_tokens"] else 1.0) for w in common)
+        s += 2.5 * len(qb & e["bigrams"])
         s /= math.log(len(e["tokens"]) + 8)
         if s > 0:
             best = max(e["phrases"], key=lambda ph: len(q & set(_tokens(ph))))

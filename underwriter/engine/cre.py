@@ -128,7 +128,7 @@ def analyze_cre(deal: Deal) -> dict:
                           f"{labels[k]} is a one-time lease-up cost; excluded after the first year."})
     # expense growth floor
     for k in exp_keys:
-        if k in ("re_taxes", "tax_abatement") or k in deal.terms.one_time_expense_keys:
+        if k in ("re_taxes", "tax_abatement", "replacement_reserves") or k in deal.terms.one_time_expense_keys:
             continue
         gr = cagr(lines[k])
         if gr is not None and gr < g_exp - 0.0005 and lines[k][0] > 0:

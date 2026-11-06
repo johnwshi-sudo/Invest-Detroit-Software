@@ -75,19 +75,24 @@ def expected_sb(spec, deal, pres):
         if not B:
             continue
         I = pres["is"][pid]
-        cl = B["ap"] + B["accrued"] + B["loc"] + B["cpltd"]          # GAAP / ID 2018 exhibit: CPLTD is current
-        ltobl = B["ltd"]
-        nw = B["equity"]
+        # Invest Detroit's own (subordinated) note is presented as quasi-equity; its current portion leaves CPLTD too
+        id_names = [d["creditor"] for d in spec["fin"].get("debts", []) if d.get("is_id")]
+        id_bal = sum(B["debt_balances"].get(nm, 0) for nm in id_names)
+        id_cur = sum(B["debt_current"].get(nm, 0) for nm in id_names)
+        cl = B["ap"] + B["accrued"] + B["loc"] + B["cpltd"] - id_cur        # GAAP / ID 2018 exhibit: CPLTD is current
+        ltobl = B["ltd"] - (id_bal - id_cur)
+        nw = B["equity"] + id_bal
         tl = cl + ltobl
+        pos = nw if nw > 0 else None
         e = inc[pid]["ebitda"]
         ratios[pid] = {"current_ratio": div(B["tca"], cl), "quick_ratio": div(B["cash"] + B["ar"] + B["related_receivable"], cl),
-                       "working_capital": B["tca"] - cl, "debt_to_worth": div(tl, nw), "liabilities_to_assets": div(tl, B["ta"]),
+                       "working_capital": B["tca"] - cl, "debt_to_worth": div(tl, pos), "liabilities_to_assets": div(tl, B["ta"]),
                        "lt_debt_to_net_fixed_assets": div(ltobl, B["nfa"]), "interest_coverage": div(e, I["interest"]),
-                       "return_on_assets": div(I["net_income"], B["ta"]), "return_on_equity": div(I["net_income"], nw),
+                       "return_on_assets": div(I["net_income"], B["ta"]), "return_on_equity": div(I["net_income"], pos),
                        "gross_margin": div(I["gross_profit"], I["revenue"]), "net_margin": div(I["net_income"], I["revenue"]),
                        "ar_days": div(B["ar"] * 360, I["revenue"]), "inventory_days": div(B["inventory"] * 360, I["revenue"]),
                        "ap_days": div(B["ap"] * 360, I["cogs"]), "sales_to_assets": div(I["revenue"], B["ta"]),
-                       "sales_to_net_worth": div(I["revenue"], nw), "cash_to_sales": div(B["cash"], I["revenue"]),
+                       "sales_to_net_worth": div(I["revenue"], pos), "cash_to_sales": div(B["cash"], I["revenue"]),
                        "net_worth": nw, "ebitda_less_distributions": e - I["distributions"]}
     be = {}
     for pid in annual_ids:
@@ -117,7 +122,8 @@ def expected_sb(spec, deal, pres):
             prev = p["id"]
     coll = t.get("collateral") or []
     gross = sum(c["gross_value"] for c in coll)
-    ltv = div(t["proposed_loan"]["amount"], gross) if gross else None
+    prior = sum(c.get("prior_liens", 0) for c in coll)
+    ltv = div(t["proposed_loan"]["amount"] + prior, gross) if gross else None   # CLTV when senior liens exist
     exc = exceptions(spec, deal, {"dscr_last": inc[annual_ids[-1]]["dscr"] if annual_ids else None,
                                   "dscr_proj": agg["dscr"] if agg else None, "ltv": ltv, "revenue": inc[annual_ids[-1]]["revenue"] if annual_ids else None})
     ic_y, ic_m = int(t["ic_date"][:4]), int(t["ic_date"][5:7])
@@ -147,7 +153,8 @@ def expected_cre(spec, deal, pres):
     L = {k: list(v) for k, v in pres["lines"].items()}
     notes = []
     # rent growth cap: regrow gross lines at 2% and keep the borrower's vacancy percentage
-    for g in [k for k in L if k.startswith("gross_") or k == "other_gross_rent"]:
+    # Invest Detroit caps rent AND reimbursement (CAM) growth at the guideline rate (Ballpoint memo grows CAM at 2%)
+    for g in [k for k in L if k.startswith("gross_") or k in ("other_gross_rent", "cam_reimbursement")]:
         gr = cagr(L[g])
         if gr is not None and gr > A["rent_growth_max"] + 0.0005:
             vac = next((v for v, gg in GMAP.items() if gg == g and v in L), None)

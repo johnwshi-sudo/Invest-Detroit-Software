@@ -224,6 +224,11 @@ def cap_narrative(r: dict) -> dict:
     pids = r["bs_periods"]
     nw = [r["ratios"][p]["net_worth"] for p in pids]
     lev = [r["ratios"][p]["debt_to_worth"] for p in pids]
+    if any(v <= 0 for v in nw):
+        neg = [p for p, v in zip(pids, nw) if v <= 0]
+        return p(f"The company reports a negative net worth (deficit) of {fmt_money(nw[pids.index(neg[-1])])} at {neg[-1]}"
+                 f"{' and in ' + str(len(neg) - 1) + ' other period(s)' if len(neg) > 1 else ''}; leverage ratios based on net worth are not meaningful. "
+                 "Please see Exhibit D - Historical Statements of Assets, Liabilities and Net Worth for further detail.")
     tl = [r["balance_sheet"][p]["total_liabilities"] for p in pids]
     if len(pids) < 2:
         return p(f"Net worth was {fmt_money(nw[0])} with debt to worth of {fmt_x(lev[0])}.") if pids else None
@@ -422,7 +427,7 @@ def strengths_weaknesses(deal, r, policy, bench) -> tuple[list, list]:
         S.append(txt)
     if len(r["bs_periods"]) >= 2:
         lev = [r["ratios"][p]["debt_to_worth"] for p in r["bs_periods"]]
-        if lev[-1] < lev[0]:
+        if None not in lev and lev[-1] < lev[0]:
             S.append(f"Leverage has improved (debt to worth from {fmt_x(lev[0])} to {fmt_x(lev[-1])}).")
     coll = r["collateral"]
     if coll.get("ltv_gross") and coll["ltv_gross"] <= 0.75:

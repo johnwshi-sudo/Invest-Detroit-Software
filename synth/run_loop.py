@@ -106,7 +106,7 @@ def score_sb(spec, deal, pres, exp, out, sc: Score):
             f"expected {exp['line_of_business']} got {out['policy']['line_of_business']['line']}")
     sc.flag("policy", "start-up rules applied" if exp["startup"] else "no false start-up flag",
             ("start-up" in fl.lower()) == exp["startup"])
-    if spec["quirks"].get("split_docs"):
+    if spec.get("_restated"):
         sc.flag("consistency", "restated year flagged", "differs between documents" in fl)
     _common(spec, deal, exp, out, sc)
 
@@ -148,8 +148,12 @@ def _common(spec, deal, exp, out, sc: Score):
     sc.flag("policy", "Oversight Council trigger", pol["oversight_council_required"] == (counted(exp["exceptions"]) > 3),
             f"expected {counted(exp['exceptions']) > 3}")
     code = out["naics"]["code"]
-    sc.flag("naics", "NAICS code", code == spec["naics"] or (spec["quirks"].get("no_naics_hint") if spec["kind"] == "small_business" else False) and code and code[:4] == spec["naics"][:4],
-            f"expected {spec['naics']} got {code}")
+    fallback = spec["kind"] == "small_business" and spec["quirks"].get("no_naics_hint")
+    if fallback:   # keyword-only fallback (no code from document reading): scored separately, must be flagged for review
+        sc.flag("naics_fallback", "keyword NAICS within same 4-digit group", bool(code) and code[:4] == spec["naics"][:4], f"expected {spec['naics']} got {code}")
+        sc.flag("naics", "keyword-only NAICS flagged for confirmation", any("keyword" in f.message for f in out["flags"]))
+    else:
+        sc.flag("naics", "NAICS code", code == spec["naics"], f"expected {spec['naics']} got {code}")
     memo_qa(spec, deal, exp, out, sc)
 
 
@@ -259,7 +263,7 @@ def misread_test(spec, deal, rng) -> tuple[bool, str] | None:
     if spec["kind"] != "small_business":
         return None
     d = copy.deepcopy(deal)
-    fs = d["financials"][-1] if spec["quirks"].get("assurance") != "tax_return" else d["financials"][-1]
+    fs = rng.choice([f for f in d["financials"] if f["line_items"]])
     cands = [li for li in fs["line_items"] if li["key"] in ("revenue", "cogs", "operating_expenses", "cash", "accounts_receivable",
                                                              "inventory", "accounts_payable", "accrued_expenses", "line_of_credit",
                                                              "other_income", "interest_expense", "fixed_assets_gross") and abs(li["value"]) >= 1000]
@@ -273,14 +277,19 @@ def misread_test(spec, deal, rng) -> tuple[bool, str] | None:
     return hit, f"{li['period_id']} {li['key']} {s}->{new}"
 
 
-def run(round_no=None, only=None, verbose=False):
+def run(round_no=None, only=None, verbose=False, n_random=0, misreads_per_case=1, seed=2026):
     OUT.mkdir(parents=True, exist_ok=True)
     rng = random.Random(42)
     all_scores, misreads, errors = [], [], []
-    for spec in SCENARIOS:
+    specs = list(SCENARIOS)
+    if n_random:
+        from .random_cases import random_scenarios
+        specs += random_scenarios(n_random, max(1, n_random * 2 // 5), seed)
+    for spec in specs:
         if only and spec["id"] not in only:
             continue
-        deal_json, pres, truth, _ = build_case(spec)
+        deal_json, pres, truth, restated = build_case(spec)
+        spec = {**spec, "_restated": bool(restated)}
         (OUT / f"{spec['id']}.deal.json").write_text(json.dumps(deal_json, indent=1))
         sc = Score(spec["id"])
         try:
@@ -288,9 +297,10 @@ def run(round_no=None, only=None, verbose=False):
             out = analyze(deal)
             exp = expected(spec, deal_json, pres)
             (score_sb if spec["kind"] == "small_business" else score_cre)(spec, deal_json, pres, exp, out, sc)
-            mr = misread_test(spec, deal_json, rng)
-            if mr:
-                misreads.append((spec["id"], *mr))
+            for _ in range(misreads_per_case):
+                mr = misread_test(spec, deal_json, rng)
+                if mr:
+                    misreads.append((spec["id"], *mr))
         except Exception as e:  # noqa: BLE001
             import traceback
             errors.append((spec["id"], traceback.format_exc(limit=6)))
@@ -349,5 +359,8 @@ if __name__ == "__main__":
     ap.add_argument("--round", type=int)
     ap.add_argument("--only", nargs="*")
     ap.add_argument("-v", action="store_true")
+    ap.add_argument("--random", type=int, default=0, help="also generate N random small-business (+40%% as many CRE) cases")
+    ap.add_argument("--misreads", type=int, default=1)
+    ap.add_argument("--seed", type=int, default=2026)
     a = ap.parse_args()
-    run(a.round, a.only, a.v)
+    run(a.round, a.only, a.v, a.random, a.misreads, a.seed)

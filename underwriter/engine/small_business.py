@@ -137,20 +137,27 @@ def _balance_sheet(deal: Deal, s: Spread, pids: list[str], flags: list[Flag]) ->
         term_total = ltd + (0 if opt.cpltd_in_current else cpltd)
         if opt.cpltd_in_current:
             cl_items["current_portion_ltd"] = cpltd
-        tcl = sum(cl_items.values())
         # allocate term debt by creditor
         id_bal = _period_balance(id_debts, pid, s, flags)
         sub_bal = _period_balance(sub_debts, pid, s, flags, assume_unchanged=True)
         id_bal = id_bal or 0.0
         sub_bal = sub_bal or 0.0
-        other_term = term_total - id_bal - sub_bal + g("other_liabilities")
-        equity_stated = g("total_equity") if s.has(pid, "total_equity") else ta - tcl - term_total - g("other_liabilities")
+        # when CPLTD is shown as current, part of each note sits in CPLTD: split it out by the note's payment terms
+        id_cur = _current_portion(id_debts, pid, flags) if (opt.cpltd_in_current and id_bal and cpltd) else 0.0
+        sub_cur = _current_portion(sub_debts, pid, flags) if (opt.cpltd_in_current and sub_bal and cpltd) else 0.0
+        id_cur, sub_cur = min(id_cur, cpltd), min(sub_cur, max(cpltd - id_cur, 0.0))
+        other_term = term_total - (id_bal - id_cur) - (sub_bal - sub_cur) + g("other_liabilities")
+        equity_stated = g("total_equity") if s.has(pid, "total_equity") else ta - sum(cl_items.values()) - term_total - g("other_liabilities")
         if opt.treat_id_note_as_equity and id_bal:
-            lt_obligations = other_term + sub_bal
+            if id_cur:
+                cl_items["current_portion_ltd"] = cl_items.get("current_portion_ltd", 0.0) - id_cur
+            tcl = sum(cl_items.values())
+            lt_obligations = other_term + (sub_bal - sub_cur)
             nw = equity_stated + id_bal
             total_liab = tcl + lt_obligations
         else:
-            lt_obligations = other_term + sub_bal + id_bal
+            tcl = sum(cl_items.values())
+            lt_obligations = other_term + (sub_bal - sub_cur) + (id_bal - id_cur)
             nw = equity_stated
             total_liab = tcl + lt_obligations
         if abs(total_liab + nw - ta) > 5:
@@ -168,6 +175,28 @@ def _balance_sheet(deal: Deal, s: Spread, pids: list[str], flags: list[Flag]) ->
             "intangibles": g("intangible_assets"),
         }
     return out
+
+
+def _current_portion(debts, pid, flags) -> float:
+    """Principal due in the 12 months after `pid`, from each note's balance, rate and monthly payment."""
+    total = 0.0
+    for d in debts:
+        bal = debt_balance(d, pid)
+        if not bal:
+            continue
+        if d.monthly_payment is None or d.interest_rate is None:
+            msg = f"Current portion of {d.creditor} cannot be split from CPLTD (payment terms not extracted); net worth may include it twice."
+            if not any(f.message == msg for f in flags):
+                flags.append(Flag("warning", "missing", msg, d.creditor))
+            continue
+        b, r = bal, d.interest_rate / 12
+        for _ in range(12):
+            if b <= 0:
+                break
+            p = min(d.monthly_payment - b * r, b)
+            b -= max(p, 0.0)
+        total += bal - b
+    return total
 
 
 def _period_balance(debts, pid, s: Spread, flags, assume_unchanged=False) -> Optional[float]:
@@ -209,6 +238,7 @@ def _ratios(deal: Deal, bs: dict, inc: dict) -> dict:
         tcl = b["total_current_liabilities"]
         nw = b["net_worth"]
         inv_base = sales if deal.terms.options.ratio_inventory_days_basis == "sales" else cogs
+        pos_nw = nw if nw > 0 else None          # worth-based ratios are not meaningful with zero/negative net worth
         out[pid] = {
             "working_capital": b["total_current_assets"] - tcl,
             "quick_ratio": safe_div(ca["cash"] + ca["accounts_receivable"] + ca["other_receivables"], tcl),
@@ -216,8 +246,8 @@ def _ratios(deal: Deal, bs: dict, inc: dict) -> dict:
             "sales_to_working_capital": safe_div(sales, b["total_current_assets"] - tcl),
             "net_worth": nw,
             "tangible_net_worth": nw - b["intangibles"],
-            "debt_to_worth": safe_div(b["total_liabilities"], nw),
-            "debt_to_tangible_worth": safe_div(b["total_liabilities"], nw - b["intangibles"]),
+            "debt_to_worth": safe_div(b["total_liabilities"], pos_nw),
+            "debt_to_tangible_worth": safe_div(b["total_liabilities"], (nw - b["intangibles"]) if nw - b["intangibles"] > 0 else None),
             "lt_debt_to_net_fixed_assets": safe_div(b["lt_obligations"], b["net_fixed_assets"]),
             "liabilities_to_assets": safe_div(b["total_liabilities"], b["total_assets"]),
             "interest_coverage": safe_div(i["ebitda"], i["interest"]),
@@ -226,7 +256,7 @@ def _ratios(deal: Deal, bs: dict, inc: dict) -> dict:
             "ebida": i["ebitda"] - i["income_taxes"],
             "dscr": i.get("dscr"),
             "return_on_assets": safe_div(ni, b["total_assets"]),
-            "return_on_equity": safe_div(ni, nw),
+            "return_on_equity": safe_div(ni, pos_nw),
             "gross_margin": safe_div(i["gross_profit"], sales),
             "ebit": ni + i["interest"],
             "net_margin": safe_div(ni, sales),
@@ -236,7 +266,7 @@ def _ratios(deal: Deal, bs: dict, inc: dict) -> dict:
             "inventory_turnover": safe_div(inv_base, ca["inventory"]),
             "ap_days": safe_div(b["current_liabilities"]["accounts_payable"] * 360, cogs),
             "sales_to_assets": safe_div(sales, b["total_assets"]),
-            "sales_to_net_worth": safe_div(sales, nw),
+            "sales_to_net_worth": safe_div(sales, pos_nw),
             "cash_to_sales": safe_div(ca["cash"], sales),
         }
     return out
@@ -379,6 +409,10 @@ def analyze_small_business(deal: Deal) -> dict:
         # compare debt service lines to FS-note payments
         _check_note_payments(deal, s, flags)
 
+    for pid, b in bs.items():
+        if b["net_worth"] <= 0:
+            flags.append(Flag("warning", "analysis", f"{pid}: net worth is negative ({fmt_money(b['net_worth'])}); debt-to-worth, return on equity "
+                                                     f"and sales-to-worth are not meaningful.", pid))
     collateral = collateral_analysis(deal)
     nonrec_flags(inc, flags)
     _dscr_policy_flags(deal, inc, hist, aggregate, flags)
