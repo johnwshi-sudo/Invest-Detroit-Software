@@ -310,7 +310,9 @@ class RiskScore(BaseModel):
 class DealOptions(BaseModel):
     include_nonrecurring_in_ebitda: bool = Field(True, description="Invest Detroit's Kirk's memo counted PPP forgiveness as cash income")
     treat_id_note_as_equity: bool = Field(True, description="Show Invest Detroit's subordinated note as quasi-equity (Sub-Debt) as in the Kirk's exhibits")
-    cpltd_in_current: bool = Field(False, description="Invest Detroit's exhibits show term debt by creditor below current liabilities")
+    cpltd_in_current: bool = Field(True, description="GAAP and Invest Detroit's exhibits include the current portion of LTD in current "
+                                   "liabilities when the statements show it. Set False to present all term debt by creditor below current "
+                                   "liabilities (used to compare with statements that did not split CPLTD).")
     ratio_inventory_days_basis: Literal["sales", "cogs"] = "sales"  # sample exhibit used sales
     exclude_from_tnw: list[str] = Field(default_factory=lambda: ["other_receivables", "prepaid_expenses", "intangible_assets"])
     target_dscr_takeout: float = 1.25

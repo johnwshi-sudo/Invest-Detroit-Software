@@ -157,6 +157,13 @@ def _assess(name, borrower, bench, higher_is_better: Optional[bool], fmt):
     return {"metric": name, "borrower": borrower, "industry": bench, "verdict": verdict, "fmt": fmt}
 
 
+def growth_limit(ind_avg: Optional[float]) -> float:
+    """Projected annual revenue growth above this is flagged: the lower of 25% or industry average + 10 points."""
+    if ind_avg is None:
+        return REALISM["growth_abs_max"]
+    return min(REALISM["growth_abs_max"], max(ind_avg + REALISM["growth_excess_pp"], 0.0))
+
+
 def compare_small_business(analysis: dict, code: Optional[str]) -> dict:
     flags: list[Flag] = []
     ind = industry_for(code)
@@ -198,8 +205,7 @@ def compare_small_business(analysis: dict, code: Optional[str]) -> dict:
     ind_avg = sum(ind_growth) / len(ind_growth) if ind_growth else None
     if agg and agg["values"].get("growth_vs_prior") is not None:
         pg = agg["values"]["growth_vs_prior"]
-        limit = max((ind_avg or 0) + REALISM["growth_excess_pp"], 0)
-        extreme = pg > min(REALISM["growth_abs_max"], limit) if ind_avg is not None else pg > REALISM["growth_abs_max"]
+        extreme = pg > growth_limit(ind_avg)
         realism.append({"check": "Projected revenue growth", "projected": pg, "benchmark": ind_avg,
                         "benchmark_label": f"industry receipts growth avg {', '.join(ig.keys())}",
                         "result": "flag" if extreme else "reasonable"})
@@ -217,6 +223,23 @@ def compare_small_business(analysis: dict, code: Optional[str]) -> dict:
             flags.append(Flag("warning", "benchmark", f"Projected gross margin {fmt_pct(pgm)} is outside the historical range {fmt_pct(min(gms))}-{fmt_pct(max(gms))}."))
         if pgm is not None and b["gross_margin"] and pgm > b["gross_margin"] * 1.3:
             flags.append(Flag("warning", "benchmark", f"Projected gross margin {fmt_pct(pgm)} is well above the industry aggregate {fmt_pct(b['gross_margin'])}."))
+    # annual projection periods (e.g. start-up 3-year forecasts)
+    prev = annual[-1] if annual else None
+    s = analysis["spread"]
+    for p in s.periods:
+        if p.kind != "projection" or p.months != 12 or p.id not in inc or prev is None:
+            continue
+        pg = safe_div(inc[p.id]["revenue"] - inc[prev]["revenue"], inc[prev]["revenue"])
+        if pg is not None:
+            limit = growth_limit(ind_avg)
+            extreme = pg > limit
+            realism.append({"check": f"Projected revenue growth ({p.label})", "projected": pg, "benchmark": ind_avg,
+                            "benchmark_label": f"industry receipts growth avg {', '.join(ig.keys())}", "result": "flag" if extreme else "reasonable"})
+            if extreme:
+                flags.append(Flag("warning", "benchmark", f"Projected revenue growth {fmt_pct(pg)} for {p.label} exceeds the realism limit of {fmt_pct(limit)} "
+                                                          f"(lower of {fmt_pct(REALISM['growth_abs_max'], 0)} or industry average {fmt_pct(ind_avg)} + "
+                                                          f"{REALISM['growth_excess_pp'] * 100:.0f} pts)."))
+        prev = p.id
     for m in metrics:
         if m["verdict"] == "unfavorable" and m["industry"] and m["borrower"] is not None:
             far = m["borrower"] / m["industry"] if m["industry"] else None

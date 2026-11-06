@@ -153,7 +153,8 @@ def check_policy(deal: Deal, analysis: dict, naics_code: Optional[str] = None) -
         rt = deal.cre.property.rehab_type if deal.cre else "rehab"
         req = G["contingencies"]["new_construction" if rt == "new_construction" else "rehab_construction"]
         label = "new construction" if rt == "new_construction" else "rehab"
-        for kind, pct_key in (("hard", "hard_contingency_pct"), ("soft", "soft_contingency_pct")):
+        no_construction = rt == "acquisition" or not su.get("hard_base")
+        for kind, pct_key in (() if no_construction else (("hard", "hard_contingency_pct"), ("soft", "soft_contingency_pct"))):
             actual = su.get(pct_key)
             lab = su.get("labeled_contingency", {}).get(f"{kind}_contingency")
             shown = fmt_pct(actual) + (f" (budget labels it {fmt_pct(lab, 1)})" if lab and abs(lab - (actual or 0)) > 0.005 else "")
@@ -178,12 +179,45 @@ def check_policy(deal: Deal, analysis: dict, naics_code: Optional[str] = None) -
                 exceptions.append(_exc("policy", "Background check", "Background check and credit report on >= 20% owners",
                                        f"Not obtained for {p.name}", source="Loan Policy"))
 
+    startup = startup_status(deal, analysis)
+    if startup:
+        info.append(startup["message"])
+
     counted = [e for e in exceptions if e["kind"] == "guideline" and e["counts_toward_oversight"]]
     trigger = G["exceptions"]["oversight_council_trigger"]
     return {"product": t.product, "product_label": prod.get("label", t.product), "line_of_business": lob,
-            "exceptions": exceptions, "passed": passed, "info": info,
+            "exceptions": exceptions, "passed": passed, "info": info, "startup": startup,
             "guideline_exception_count": len(counted), "oversight_council_required": len(counted) > trigger,
             "documents": document_checklist(deal)}
+
+
+def startup_status(deal: Deal, analysis: dict):
+    """Appendix E start-up business (< 24 months of operating history). The month established is usually unknown, so
+    the earliest possible opening (January of the year established) is used to decide whether it may be < 24 months."""
+    if deal.terms.deal_type != "small_business":
+        return None
+    from datetime import date
+    ic = deal.terms.ic_date or date.today().isoformat()
+    y, m = int(ic[:4]), int(ic[5:7])
+    est = deal.profile.year_established
+    reasons = []
+    if est:
+        min_months = (y - est - 1) * 12 + m
+        if min_months < 24:
+            reasons.append(f"established in {est} ({min_months}-{min_months + 11} months of operations by {ic[:7]})")
+    inc = analysis.get("income", {})
+    annual = [p for p in analysis.get("hist", []) if inc.get(p, {}).get("months") == 12]
+    if len(annual) < 2:
+        reasons.append(f"only {len(annual)} full fiscal year(s) of statements")
+    if not reasons:
+        return None
+    reqs = load_guidelines().get("startup_requirements") or [
+        "Guarantor must have outside income to support projected debt service payments",
+        "Business plan, contracts, licenses, insurance",
+        "Entrepreneur without relevant management experience or construction draw experience must engage an owner's representative"]
+    return {"reasons": reasons, "requirements": reqs,
+            "message": "Possible start-up business under Appendix E (< 24 months): " + "; ".join(reasons) +
+                       ". Requirements: " + "; ".join(reqs) + ". Repayment relies on projections; DSCR on historical results is not meaningful."}
 
 
 def document_checklist(deal: Deal) -> dict:

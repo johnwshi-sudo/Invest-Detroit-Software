@@ -33,6 +33,8 @@ def analyze(deal: Deal) -> dict:
     flags += r["flags"] + bench.get("flags", [])
     for e in policy["exceptions"]:
         flags.append(Flag("warning", "policy", f"{e['kind'].title()} exception: {e['item']} — required {e['requirement']}, actual {e['actual']}."))
+    if policy.get("startup"):
+        flags.append(Flag("warning", "policy", policy["startup"]["message"]))
     miss = policy["documents"]["missing_required_before_screen"]
     if miss:
         flags.append(Flag("warning", "missing", "Required before deal screen but not received: " + "; ".join(miss) + "."))

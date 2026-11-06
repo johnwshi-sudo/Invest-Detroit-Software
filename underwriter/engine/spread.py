@@ -129,8 +129,18 @@ def _foot_checks(s: Spread) -> None:
         pid = p.id
         g = lambda k: s.get(pid, k, None)
         checks = []
-        if g("revenue") is not None and g("cogs") is not None and g("gross_profit") is not None:
-            checks.append(("gross profit", g("revenue") - g("cogs"), g("gross_profit")))
+        if g("revenue") is not None and g("gross_profit") is not None:
+            checks.append(("gross profit", g("revenue") - (g("cogs") or 0.0), g("gross_profit")))
+        if g("total_current_liabilities") is not None:
+            cl_keys = ["accounts_payable", "accrued_expenses", "line_of_credit", "current_portion_ltd", "other_current_liabilities"]
+            if any(s.has(pid, k) for k in cl_keys):
+                checks.append(("total current liabilities", sum(s.get(pid, k) for k in cl_keys), g("total_current_liabilities")))
+        if g("total_liabilities") is not None and g("total_current_liabilities") is not None:
+            checks.append(("total liabilities", g("total_current_liabilities") + s.get(pid, "long_term_debt") + s.get(pid, "other_liabilities"), g("total_liabilities")))
+        fa_keys = ["fixed_assets_gross", "accumulated_depreciation"]
+        if g("net_fixed_assets") is not None and s.has(pid, "fixed_assets_gross"):
+            acc = s.get(pid, "accumulated_depreciation")
+            checks.append(("net fixed assets", s.get(pid, "fixed_assets_gross") - abs(acc), g("net_fixed_assets")))
         ca_keys = ["cash", "accounts_receivable", "inventory", "other_receivables", "prepaid_expenses", "other_current_assets"]
         if g("total_current_assets") is not None and any(s.has(pid, k) for k in ca_keys):
             checks.append(("total current assets", sum(s.get(pid, k) for k in ca_keys), g("total_current_assets")))

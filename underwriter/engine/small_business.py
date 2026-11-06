@@ -26,7 +26,7 @@ def _income(s: Spread, pid: str, deal: Deal, flags: list[Flag]) -> dict:
     p = s.period(pid)
     g = lambda k: s.get(pid, k, 0.0) or 0.0
     rev = g("revenue")
-    cogs = g("cogs") if s.has(pid, "cogs") else (rev - g("gross_profit") if s.has(pid, "gross_profit") else 0.0)
+    cogs = g("cogs") if s.has(pid, "cogs") else 0.0   # never derive COGS from a stated gross profit (would hide a misread)
     gp = rev - cogs
     if s.has(pid, "operating_expenses"):
         opex = g("operating_expenses")
@@ -60,11 +60,14 @@ def _income(s: Spread, pid: str, deal: Deal, flags: list[Flag]) -> dict:
     ebitda_ex = ebitda - nonrec
     if not deal.terms.options.include_nonrecurring_in_ebitda:
         ebitda, ebitda_ex = ebitda_ex, ebitda_ex
-    return {"revenue": rev, "cogs": cogs, "gross_profit": gp, "operating_expenses": opex, "operating_profit": op,
+    return {"cogs_pct": safe_div(cogs, rev), "gross_margin": safe_div(gp, rev), "net_margin": safe_div(ni, rev),
+            "ebitda_margin": safe_div(ebitda, rev),
+            "revenue": rev, "cogs": cogs, "gross_profit": gp, "operating_expenses": opex, "operating_profit": op,
             "other_income": other_inc, "nonrecurring_income": nonrec, "other_expenses": other_exp,
             "interest": interest_addback, "income_taxes": taxes, "net_income": ni, "depreciation": dep,
             "amortization": amort, "ebitda": ebitda, "ebitda_ex_nonrecurring": ebitda_ex,
-            "officer_compensation": s.get(pid, "officer_compensation", None), "months": p.months}
+            "officer_compensation": s.get(pid, "officer_compensation", None), "distributions": g("distributions"),
+            "months": p.months}
 
 
 def proposed_annual_payment(deal: Deal) -> Optional[float]:
@@ -219,6 +222,7 @@ def _ratios(deal: Deal, bs: dict, inc: dict) -> dict:
             "liabilities_to_assets": safe_div(b["total_liabilities"], b["total_assets"]),
             "interest_coverage": safe_div(i["ebitda"], i["interest"]),
             "ebitda": i["ebitda"],
+            "ebitda_less_distributions": i["ebitda"] - (i.get("distributions") or 0.0),
             "ebida": i["ebitda"] - i["income_taxes"],
             "dscr": i.get("dscr"),
             "return_on_assets": safe_div(ni, b["total_assets"]),
@@ -323,6 +327,8 @@ def analyze_small_business(deal: Deal) -> dict:
     # projection aggregate (e.g., Q1 actual + Q2-Q4 forecast = projected FYE)
     aggregate = None
     agg = deal.terms.projection_aggregate
+    if not agg:
+        agg = _auto_aggregate(s, inc)
     if agg and all(pid in inc for pid in agg["period_ids"]):
         keys = ["revenue", "cogs", "gross_profit", "operating_expenses", "operating_profit", "other_income",
                 "nonrecurring_income", "other_expenses", "interest", "income_taxes", "net_income", "depreciation",
@@ -381,6 +387,20 @@ def analyze_small_business(deal: Deal) -> dict:
             "annualized": annualized, "aggregate": aggregate, "balance_sheet": bs, "bs_periods": bs_pids,
             "ratios": ratios, "tnw": tnw, "break_even": be, "debt_schedule": sched, "debt_schedule_date": latest,
             "collateral": collateral, "flags": flags}
+
+
+def _auto_aggregate(s: Spread, inc: dict):
+    """Interim actual + forecast periods that end the same fiscal year and total 12 months -> full-year forecast."""
+    interim = [p for p in s.periods if p.kind == "interim" and p.id in inc]
+    if not interim:
+        return None
+    it = interim[-1]
+    parts = [it] + [p for p in s.periods if p.kind == "projection" and p.id in inc and p.end_date[:4] == it.end_date[:4]
+                    and p.end_date > it.end_date]
+    if sum(p.months for p in parts) != 12:
+        return None
+    end = parts[-1].end_date
+    return {"label": f"Aggregate 12 Mos. Ending {end[5:7]}/{end[8:10]}/{end[2:4]}", "period_ids": [p.id for p in parts]}
 
 
 def nonrec_flags(inc: dict, flags: list[Flag]) -> None:

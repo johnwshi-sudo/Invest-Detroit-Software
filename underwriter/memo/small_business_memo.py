@@ -271,10 +271,18 @@ def break_even_narrative(r: dict) -> dict:
         return None
     s = r["spread"]
     cush = [be[p]["cushion_pct"] for p in be]
-    lead = "Our analysis indicates that historical operations have been at near break-even, allowing for only slight downward adjustments to gross sales." \
-        if max(cush) < 0.05 else "Our analysis indicates that historical operations can absorb a moderate decline in gross sales before debt service coverage falls to 1.00x."
-    detail = "Sales could decline " + _join([f"{c * 100:.1f}%" for c in cush]) + " in " + _join([_narr_label(s, p) for p in be]) + \
-             (", respectively," if len(be) > 1 else "") + " before DSCR reaches 1.00x."
+    if min(cush) < 0:
+        lead = "Historical operations have not generated enough cash flow to cover the proposed debt service in every year."
+    elif max(cush) < 0.05:
+        lead = "Our analysis indicates that historical operations have been at near break-even, allowing for only slight downward adjustments to gross sales."
+    else:
+        lead = "Our analysis indicates that historical operations can absorb a moderate decline in gross sales before debt service coverage falls to 1.00x."
+    parts = []
+    for pid in be:
+        c = be[pid]["cushion_pct"]
+        parts.append(f"sales could decline {c * 100:.1f}% in {_narr_label(s, pid)}" if c >= 0 else
+                     f"sales would need to increase {-c * 100:.1f}% in {_narr_label(s, pid)}")
+    detail = "For DSCR to reach 1.00x, " + _join(parts) + "."
     return p(f"{lead} {detail} Our model adjusts the cost of goods sold so that gross profit margins are consistent with historical levels. "
              "Operating expenses are treated as a fixed cost and are not adjusted to sales.")
 
@@ -350,6 +358,7 @@ def ratio_exhibit(r: dict) -> dict:
             ln("Debt/Worth", "debt_to_worth", x3), ln("Debt/Tang Worth", "debt_to_tangible_worth", x3),
             ln("LT Debt/Net Fixed Assets", "lt_debt_to_net_fixed_assets", x3), ln("Total Liabilities/Total Assets", "liabilities_to_assets", x3),
             row(["COVERAGE"] + [""] * len(pids), "bold"), ln("Interest Coverage (EBITDA/Interest)", "interest_coverage", x3),
+            ln("EBITDA (-/+) Distributions/Contributions", "ebitda_less_distributions", m),
             ln("EBITDA", "ebitda", m), ln("EBIDA", "ebida", m), ln("Debt Coverage Ratio", "dscr", x3),
             row(["PROFITABILITY (%)"] + [""] * len(pids), "bold"), ln("Return on Assets", "return_on_assets", p3),
             ln("Return on Equity", "return_on_equity", p3), ln("Gross Margin", "gross_margin", p3),

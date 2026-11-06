@@ -26,6 +26,7 @@ from .small_business import collateral_analysis
 EXPENSE_ORDER = ["management_fee", "leasing_marketing", "insurance", "trash", "cleaning", "maintenance", "turns", "cable",
                  "re_taxes", "tax_abatement", "water", "gas_electric", "utilities", "payroll", "capital_reserves",
                  "accounting", "asset_management", "replacement_reserves", "other_expense"]
+COMMERCIAL_GROSS = {"gross_retail_rent", "gross_office_rent", "other_gross_rent"}
 GROSS_FOR_VAC = {"retail_vacancy": "gross_retail_rent", "office_vacancy": "gross_office_rent",
                  "residential_vacancy": "gross_residential_rent", "other_vacancy": "other_gross_rent"}
 
@@ -106,7 +107,11 @@ def analyze_cre(deal: Deal) -> dict:
         gr = cagr(lines[k])
         if gr is not None and gr > g_rent + 0.0005:
             new = [lines[k][0] * (1 + g_rent) ** t for t in range(n)]
-            adjustments.append((k, new, f"{labels[k]} grown at {fmt_pct(g_rent, 0)} (borrower used {fmt_pct(gr)} per year)"))
+            adjustments.append((k, new, f"{labels[k]} grown at Invest Detroit's maximum of {fmt_pct(g_rent, 0)} per year (borrower used {fmt_pct(gr)})."))
+            vk = next((v for v, g in GROSS_FOR_VAC.items() if g == k and v in lines), None)
+            if vk:
+                pct = [safe_div(-lines[vk][t], lines[k][t]) or 0.0 for t in range(n)]
+                adjustments.append((vk, [-new[t] * pct[t] for t in range(n)], None))
     # RE taxes
     est = deal.terms.re_tax_year1_override or cre.appraisal.re_tax_estimate
     if est and "re_taxes" in lines and est > lines["re_taxes"][0] + 1:
@@ -135,14 +140,17 @@ def analyze_cre(deal: Deal) -> dict:
     have_rr = sum(lines.get("replacement_reserves", [0])[:1])
     cap_res = lines.get("capital_reserves", [0] * n)[0]
     if rr_needed and have_rr < rr_needed - 1:
-        if cap_res >= rr_needed:
+        if cap_res + have_rr >= rr_needed - 1:
             notes.append({"line": "replacement_reserves",
                           "text": f"No replacement reserve was added since the borrower already includes capital reserves "
                                   f"({fmt_money(cap_res)}, ${cap_res / sf:,.2f}/SF) that exceed Invest Detroit's guideline of "
                                   f"${A['replacement_reserve_per_sf']:.2f}/SF ({fmt_money(rr_needed)})."})
         else:
-            new = [(rr_needed - cap_res) * (1 + g_exp) ** t for t in range(n)]
-            adjustments.append(("replacement_reserves", new, f"Replacement reserves added at ${A['replacement_reserve_per_sf']:.2f}/SF"))
+            short = rr_needed - cap_res - have_rr
+            base_rr = lines.get("replacement_reserves", [0.0] * n)
+            new = [base_rr[t] + short * (1 + g_exp) ** t for t in range(n)]
+            adjustments.append(("replacement_reserves", new, f"Replacement reserves increased by {fmt_money(short)} to Invest Detroit's guideline of "
+                                f"${A['replacement_reserve_per_sf']:.2f}/SF ({fmt_money(rr_needed)} on {sf:,.0f} SF, net of capital reserves)."))
             labels.setdefault("replacement_reserves", "Replacement Reserves")
             lines.setdefault("replacement_reserves", [0.0] * n)
     # apply adjustments as deltas
@@ -167,16 +175,34 @@ def analyze_cre(deal: Deal) -> dict:
         gross = sum(id_lines[k][t] for k in gross_keys)
         vac = -sum(id_lines[k][t] for k in vac_keys) - id_lines.get("general_vacancy", [0] * n)[t]
         blended.append(safe_div(vac, gross))
+    # Invest Detroit's vacancy guideline is for COMMERCIAL space; residential lines are not floored (flagged instead)
     vmin = A["commercial_vacancy_min"]
-    stab_years = [t for t in range(n) if not id_lines.get("general_vacancy", [0] * n)[t]]
+    lease_up = list(lines.get("general_vacancy", [0.0] * n))      # borrower's lease-up vacancy marks non-stabilized years
+    stab_years = [t for t in range(n) if not lease_up[t]]
+    com_gross_keys = [k for k in gross_keys if k in COMMERCIAL_GROSS]
+    com_vac_keys = [v for v in vac_keys if GROSS_FOR_VAC[v] in COMMERCIAL_GROSS]
+    floor_added = [0.0] * n
     for t in stab_years:
-        if blended[t] is not None and blended[t] < vmin - 0.0005:
-            gross = sum(id_lines[k][t] for k in gross_keys)
-            add = (vmin - blended[t]) * gross
+        cg = sum(id_lines[k][t] for k in com_gross_keys)
+        cv = -sum(id_lines[k][t] for k in com_vac_keys)
+        if cg and cv / cg < vmin - 0.0005:
+            add = vmin * cg - cv
             id_lines.setdefault("general_vacancy", [0.0] * n)
             id_lines["general_vacancy"][t] -= add
             rev_delta[t] -= add
-            blended[t] = vmin
+            floor_added[t] = add
+    if any(floor_added):
+        labels.setdefault("general_vacancy", "Less: Additional Vacancy (underwriter)")
+        notes.append({"line": "general_vacancy", "text": f"Commercial vacancy increased to Invest Detroit's {vmin * 100:.0f}% commercial vacancy guideline "
+                      f"(additional {fmt_money(max(floor_added))} in a stabilized year)."})
+    res_keys = [k for k in gross_keys if k == "gross_residential_rent"]
+    if res_keys:
+        flags.append(Flag("info", "assumption", "Residential vacancy is the borrower's assumption; the Credit Guidelines state a vacancy "
+                                                "standard for commercial space only. Confirm the residential vacancy assumption with Invest Detroit."))
+    for t in range(n):
+        gross = sum(id_lines[k][t] for k in gross_keys)
+        vac = -sum(id_lines[k][t] for k in vac_keys) - id_lines.get("general_vacancy", [0] * n)[t]
+        blended[t] = safe_div(vac, gross)
     if any(blended[t] is not None and blended[t] < vmin for t in stab_years):
         pass
     id_rev = [b_rev[t] + rev_delta[t] for t in range(n)]
@@ -191,7 +217,7 @@ def analyze_cre(deal: Deal) -> dict:
     ds_prop = [_loan_ds(prop, m) for m in months]
     dscr_base = [safe_div(id_noi[t], ds_base[t]) for t in range(n)]
     dscr_prop = [safe_div(id_noi[t], ds_prop[t]) for t in range(n)]
-    stab = next((t for t in range(n) if months[t] == 12 and not id_lines.get("general_vacancy", [0] * n)[t]), None)
+    stab = next((t for t in range(n) if months[t] == 12 and not lease_up[t]), None)
 
     sizing = None
     if take and stab is not None:

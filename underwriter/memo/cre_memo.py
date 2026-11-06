@@ -190,8 +190,10 @@ def su_bullets(deal, r: dict) -> dict:
              + (" " + deal.terms.qualitative["equity_spent"] if deal.terms.qualitative.get("equity_spent") else "")]
     if deal.terms.qualitative.get("fast_track"):
         items.append(deal.terms.qualitative["fast_track"])
-    for kind in ("hard", "soft"):
+    for kind in ("hard", "soft") if su.get("hard_base") and deal.cre.property.rehab_type != "acquisition" else ():
         act = su[f"{kind}_contingency_pct"]
+        if act is None:
+            continue
         lbl = su["labeled_contingency"].get(f"{kind}_contingency")
         shown = f"{act * 100:.1f}%" + (f" of {kind} costs (labeled {lbl * 100:.1f}% in the budget)" if lbl and abs(lbl - act) > 0.005 else "")
         items.append(f"{kind.title()} cost contingency is {shown}, which is {'below' if act < req[kind] else 'at or above'} Invest Detroit's credit guidelines of "
