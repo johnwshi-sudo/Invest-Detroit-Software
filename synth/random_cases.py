@@ -61,7 +61,8 @@ def random_sb(i: int, rng: random.Random):
     cogs = [rng.uniform(c0, c1) if c1 else 0.0 for _ in range(n)]
     target = rng.uniform(-0.08, 0.22)               # EBITDA margin before fixed-cost calibration
     gm = 1 - sum(cogs) / n
-    dep = [size * rng.uniform(0.005, 0.05)] * n
+    fa0 = size * rng.uniform(0.05, 0.6)
+    dep = [min(size * rng.uniform(0.005, 0.05), fa0 * rng.uniform(0.06, 0.2))] * n
     opex_fixed = max(size * (gm - opv - target), size * 0.03)
     debts = []
     for k in range(rng.choice([0, 1, 1, 2, 3])):
@@ -74,7 +75,7 @@ def random_sb(i: int, rng: random.Random):
     loc = [size * rng.uniform(0, 0.12) if rng.random() < 0.5 else 0.0 for _ in range(n)]
     f = fin(size, growth, cogs, opex_fixed, dep, opex_var=opv, ar_days=ar * rng.uniform(0.6, 1.4), inv_days=inv * rng.uniform(0.5, 1.5),
             ap_days=rng.uniform(15, 50), debts=debts, loc=loc, equity0=size * rng.uniform(-0.05, 0.5),
-            fa_gross0=size * rng.uniform(0.05, 0.6), accum_dep0=size * rng.uniform(0.02, 0.3), tax_rate=rng.choice([0, 0, 0.21]),
+            fa_gross0=fa0, accum_dep0=fa0 * rng.uniform(0.2, 0.7), tax_rate=rng.choice([0, 0, 0.21]),
             nonrecurring={str(years[-1]): size * rng.uniform(0.01, 0.08)} if rng.random() < 0.2 else {},
             distributions=[size * rng.uniform(0, 0.04)] * n if rng.random() < 0.35 else None,
             officer_comp=[size * rng.uniform(0.02, 0.1)] * n if rng.random() < 0.6 else None,

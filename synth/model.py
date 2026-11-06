@@ -68,54 +68,61 @@ def build_small_business(spec: dict) -> dict:
             d["hist"][y] = {"interest": i, "principal": p, "begin": d["bal"], "end": b}
             d["bal"] = b
             int_term += i
-        loc_bal = fin.get("loc", [0] * n)[t]
-        loc_int = loc_bal * loc_rate
-        interest = int_term + loc_int
-        pretax = rev - cogs - opex + other_inc + nonrec - interest
-        tax = max(0.0, pretax * fin.get("tax_rate", 0.0))
-        ni = pretax - tax
-        dist = fin.get("distributions", [0] * n)[t]
-        out["is"][y] = {"revenue": rev, "cogs": cogs, "gross_profit": rev - cogs, "opex": opex, "depreciation": dep,
-                        "operating_income": rev - cogs - opex, "other_income": other_inc, "nonrecurring": nonrec,
-                        "interest": interest, "interest_term": int_term, "interest_loc": loc_int, "pretax": pretax,
-                        "tax": tax, "net_income": ni, "officer_comp": fin.get("officer_comp", [0] * n)[t],
-                        "distributions": dist}
-        # balance sheet
+        prev_loc = fin.get("_loc_end_prev", fin.get("loc0", fin.get("loc", [0] * n)[0]))
+        loc_end = fin.get("loc", [0] * n)[t]
         capex = fin.get("capex", [0] * n)[t]
         fa_gross += capex
         accum += dep
-        ar = rev * fin["ar_days"] / 360
-        inv = cogs * fin.get("inv_days", 0) / 360
-        ap = cogs * fin.get("ap_days", 0) / 360 if cogs else (opex - dep) * fin.get("ap_days", 0) / 360
-        accrued = (opex - dep) * fin.get("accrued_pct", 0.04)
-        prepaid = fin.get("prepaid", 0.0)
-        other_rec = fin.get("related_receivable", 0.0)
-        other_assets = fin.get("other_assets", 0.0)
-        equity = prev_equity + ni - dist + fin.get("contributions", [0] * n)[t]
-        cpltd = ltd = 0.0
-        bal_by, cur_by = {}, {}
-        for d in debts:
-            # principal due next 12 months
-            _, pnext, _ = amortize_year(d["bal"], d["rate"], d["monthly_payment"], 12, d.get("io", False))
-            cpltd += pnext
-            ltd += d["bal"] - pnext
-            bal_by[d["creditor"]] = d["bal"]
-            cur_by[d["creditor"]] = pnext
-        liab_eq = ap + accrued + loc_bal + cpltd + ltd + equity
-        net_fa = fa_gross - accum
-        cash = liab_eq - (ar + inv + prepaid + other_rec + net_fa + other_assets)
-        min_cash = fin.get("min_cash", 25_000)
-        if cash < min_cash:
-            add = min_cash - cash
-            loc_bal += add
-            fin.setdefault("loc", [0] * n)[t] = loc_bal
-            cash = min_cash
-        out["bs"][y] = {"cash": cash, "ar": ar, "inventory": inv, "prepaid": prepaid, "related_receivable": other_rec,
-                        "fa_gross": fa_gross, "accum_dep": accum, "net_fa": net_fa, "other_assets": other_assets,
-                        "total_assets": cash + ar + inv + prepaid + other_rec + net_fa + other_assets,
-                        "ap": ap, "accrued": accrued, "loc": loc_bal, "cpltd": cpltd, "ltd": ltd,
-                        "total_liabilities": ap + accrued + loc_bal + cpltd + ltd, "equity": equity,
-                        "debt_balances": bal_by, "debt_current": cur_by}
+        for _iter in range(4):
+            loc_bal = loc_end
+            loc_int = (prev_loc + loc_bal) / 2 * loc_rate          # interest accrues on the average balance
+            interest = int_term + loc_int
+            pretax = rev - cogs - opex + other_inc + nonrec - interest
+            tax = max(0.0, pretax * fin.get("tax_rate", 0.0))
+            ni = pretax - tax
+            dist = fin.get("distributions", [0] * n)[t]
+            out["is"][y] = {"revenue": rev, "cogs": cogs, "gross_profit": rev - cogs, "opex": opex, "depreciation": dep,
+                            "operating_income": rev - cogs - opex, "other_income": other_inc, "nonrecurring": nonrec,
+                            "interest": interest, "interest_term": int_term, "interest_loc": loc_int, "pretax": pretax,
+                            "tax": tax, "net_income": ni, "officer_comp": fin.get("officer_comp", [0] * n)[t],
+                            "distributions": dist}
+            # balance sheet
+            ar = rev * fin["ar_days"] / 360
+            inv = cogs * fin.get("inv_days", 0) / 360
+            ap = cogs * fin.get("ap_days", 0) / 360 if cogs else (opex - dep) * fin.get("ap_days", 0) / 360
+            accrued = (opex - dep) * fin.get("accrued_pct", 0.04)
+            prepaid = fin.get("prepaid", 0.0)
+            other_rec = fin.get("related_receivable", 0.0)
+            other_assets = fin.get("other_assets", 0.0)
+            equity = prev_equity + ni - dist + fin.get("contributions", [0] * n)[t]
+            cpltd = ltd = 0.0
+            bal_by, cur_by = {}, {}
+            for d in debts:
+                # principal due next 12 months
+                _, pnext, _ = amortize_year(d["bal"], d["rate"], d["monthly_payment"], 12, d.get("io", False))
+                cpltd += pnext
+                ltd += d["bal"] - pnext
+                bal_by[d["creditor"]] = d["bal"]
+                cur_by[d["creditor"]] = pnext
+            liab_eq = ap + accrued + loc_bal + cpltd + ltd + equity
+            net_fa = fa_gross - accum
+            cash = liab_eq - (ar + inv + prepaid + other_rec + net_fa + other_assets)
+            min_cash = fin.get("min_cash", 25_000)
+            if cash < min_cash:
+                add = min_cash - cash
+                loc_bal += add
+                cash = min_cash
+            out["bs"][y] = {"cash": cash, "ar": ar, "inventory": inv, "prepaid": prepaid, "related_receivable": other_rec,
+                            "fa_gross": fa_gross, "accum_dep": accum, "net_fa": net_fa, "other_assets": other_assets,
+                            "total_assets": cash + ar + inv + prepaid + other_rec + net_fa + other_assets,
+                            "ap": ap, "accrued": accrued, "loc": loc_bal, "cpltd": cpltd, "ltd": ltd,
+                            "total_liabilities": ap + accrued + loc_bal + cpltd + ltd, "equity": equity,
+                            "debt_balances": bal_by, "debt_current": cur_by}
+            if abs(loc_bal - loc_end) < 1:
+                break
+            loc_end = loc_bal
+        fin.setdefault("loc", [0] * n)[t] = loc_bal
+        fin["_loc_end_prev"] = loc_bal
         prev_equity = equity
     out["debts"] = [{k: v for k, v in d.items() if k != "bal"} for d in debts]
     out["fa_classes"] = fin.get("fa_classes", {"Equipment": 1.0})

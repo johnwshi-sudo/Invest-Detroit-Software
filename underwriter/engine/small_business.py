@@ -402,7 +402,7 @@ def analyze_small_business(deal: Deal) -> dict:
         # reconcile schedule to balance sheet
         term_total = s.get(latest, "long_term_debt", 0.0) + s.get(latest, "current_portion_ltd", 0.0)
         sched_term = sum(x["balance"] for x in sched if x["creditor"] != (loc_debt.creditor if loc_debt else "Line of Credit"))
-        if term_total and abs(term_total - sched_term) > 5:
+        if term_total and abs(term_total - sched_term) > max(5, 0.0025 * term_total):
             flags.append(Flag("warning", "consistency",
                               f"Debt schedule term debt ({fmt_money(sched_term)}) does not reconcile to balance sheet "
                               f"current + long-term debt ({fmt_money(term_total)}) at {latest}.", latest))

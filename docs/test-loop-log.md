@@ -89,7 +89,37 @@ Harness fixes: restatement only generated when a year appears in two documents; 
 **Status after round 3:** 16,631 checks, 16,628 pass; the 3 misses are the keyword-only NAICS fallback (17/20, scored
 separately). Misread detection 501/501. Invest Detroit samples unchanged; unit tests pass.
 
+### Round 4
+Generalization run on a FRESH seed (7777) with 2.4x more cases, before any further tuning:
+583 scenarios, 40,954 checks, 40,944 pass; misread detection 1,251/1,251. Misses: keyword NAICS fallback (7) and
+3 narrative checks (fixed below).
+
+Adversarial extraction-error suite (`python -m synth.adversarial`, 117 small-business borrowers):
+| injected error | detected | new-check false alarms on clean data |
+|---|---|---|
+| statements in $000s not converted | 117/117 | 0/117 |
+| depreciation misread (x0.1, x3, x10) | 70/82 (85%) | 0/117 |
+| interest misread (x0.1, x4, x10) | 70/71 (99%) | 0/117 |
+| expense recorded with negative sign | 117/117 | 0/117 |
+| no subtotals extracted (cannot foot) | 117/117 warned | 0/117 |
+| duplicate upload | 117/117 numbers unchanged | — |
+
+New engine checks: depreciation vs change in accumulated depreciation; depreciation > accumulated depreciation or
+> 40% of gross fixed assets; interest vs debt balances x rates; year-over-year swings (>2.5x) not explained by the
+balance sheet; implied interest rate > 25%; scale check for unconverted $000s (critical); expense sign check;
+warning when no subtotals exist to foot. Reaching zero false alarms took several iterations (line-of-credit draws at
+year end and loans paid off mid-year are normal and must not trigger alerts).
+Found in Invest Detroit's own sample: the Kirk's May 2021 package reports $19,500 of Q1 depreciation while
+accumulated depreciation rose only $12,001.
+Narrative fix: amounts under $1M are now written in full dollars ("$186,745", not "$187K") so a stated % change can
+be verified from the stated amounts.
+Harness fix: generator line-of-credit interest now follows the average balance (was unrealistic).
+
+**Status after round 4:** seed-2026 set 16,658/16,660 (2 = NAICS keyword fallback); unit tests and Invest Detroit
+sample validation unchanged.
+
 #### Next steps
-- Round 4: fresh seed and 2-3x more cases to check the fixes generalize (no tuning to one seed).
-- Adversarial extraction errors: $000s not converted, misreads on lines no total covers (depreciation, officer pay),
-  duplicated documents, statements without subtotals. Add sanity checks where an underwriter would catch them.
+- Round 5: memo-level QA beyond numbers (section order vs samples, placeholders only when facts are missing, CRE
+  narrative claims such as "well within takeout terms" only when true) and policy edge cases (term/amortization/
+  minimum amount limits, missing fee, negative NOI, all-residential CRE).
+- Re-run the browser UI test after the engine changes.

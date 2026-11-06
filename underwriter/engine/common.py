@@ -77,8 +77,7 @@ def fmt_m(v: Optional[float], digits=3) -> str:
         return "n/a"
     if abs(v) >= 1_000_000:
         return f"${v / 1_000_000:.{digits}f}M"
-    if abs(v) >= 1_000:
-        return f"${v / 1_000:.0f}K"
+    # below $1M, write full dollars so that stated percentages can be checked against the stated amounts
     return f"${v:,.0f}"
 
 

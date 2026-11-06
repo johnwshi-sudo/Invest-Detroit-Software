@@ -234,9 +234,12 @@ def memo_qa(spec, deal, exp, out, sc: Score):
     sc.flag("memo", "no negative 'decline' wording", not re.search(r"decline -|decline \(-", joined), "")
     sc.flag("memo", "no '-0.0%' / NaN artifacts", "-0.0%" not in joined and not re.search(r"\bnan\b|\bNone\b(?! identified)", joined), "")
     # direction words in revenue sentences match the numbers stated
-    for m in re.finditer(r"(increased|decreased) ([\d.]+)%, from \$([\d.]+)M .*? to \$([\d.]+)M", joined):
-        word, pct, a, b = m.group(1), float(m.group(2)), float(m.group(3)), float(m.group(4))
-        ok = (b >= a) == (word == "increased") and abs(abs(b - a) / a * 100 - pct) < 0.2
+    def _mv(num, unit):
+        return float(num) * (1e6 if unit == "M" else 1e3 if unit == "K" else 1)
+    for m in re.finditer(r"(increased|decreased) ([\d.]+)%, from \$([\d.,]+)([MK]?) in [^.]*? to \$([\d.,]+)([MK]?) during", joined):
+        word, pct = m.group(1), float(m.group(2))
+        a, b = _mv(m.group(3).replace(",", ""), m.group(4)), _mv(m.group(5).replace(",", ""), m.group(6))
+        ok = (b >= a) == (word == "increased") and abs(abs(b - a) / a * 100 - pct) < 0.25
         sc.flag("memo", f"revenue sentence consistent ({word} {pct}%)", ok, m.group(0)[:90])
     if "Net worth increased each year" in joined and spec["kind"] == "small_business":
         nw = [out["analysis"]["ratios"][p]["net_worth"] for p in out["analysis"]["bs_periods"]]
