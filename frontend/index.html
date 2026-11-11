@@ -3,15 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Invest Detroit · AI Underwriting Assistant</title>
+  <title>Invest Detroit · Underwriting Assistant</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <a href="#/" class="brand"><span class="logo">ID</span> Invest Detroit <span class="muted">· AI Underwriting Assistant</span></a>
-    <div id="llm-status" class="pill"></div>
-  </header>
-  <main id="app"><div class="loading">Loading…</div></main>
+  <div class="shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="side-top">
+        <a href="#/" class="brand"><span class="logo">ID</span><span>Invest Detroit</span></a>
+        <button id="side-close" class="icon-btn only-mobile" aria-label="Close menu">&times;</button>
+      </div>
+      <a href="#/" class="new-btn" id="new-btn"><span class="plus">+</span> New analysis</a>
+      <input id="lib-search" class="search" type="search" placeholder="Search library" aria-label="Search library">
+      <nav id="library" class="library" aria-label="Library"></nav>
+    </aside>
+    <div id="scrim" class="scrim"></div>
+    <div class="content">
+      <header class="mobilebar">
+        <button id="menu-btn" class="icon-btn" aria-label="Open menu">&#9776;</button>
+        <span class="mb-title">Invest Detroit</span>
+        <a href="#/" class="icon-btn" aria-label="New analysis">+</a>
+      </header>
+      <main id="app"><div class="loading">Loading…</div></main>
+    </div>
+  </div>
   <div id="viewer" class="viewer hidden">
     <div class="viewer-box">
       <div class="viewer-head">
