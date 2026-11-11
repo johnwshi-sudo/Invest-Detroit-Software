@@ -25,72 +25,145 @@ function setPath(obj, path, val) {
 }
 
 /* ---------------- routing ---------------- */
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { closeMenu(); route(); });
 async function route() {
   const h = location.hash.replace(/^#\/?/, "").split("/");
-  if (!S.status) {
-    S.status = await api("/api/status");
-    const el = document.getElementById("llm-status");
-    el.textContent = S.status.llm_available ? `Claude connected · ${S.status.model}` : "No API key · sample/fixture mode";
-    el.className = "pill " + (S.status.llm_available ? "ok" : "off");
+  try {
+    if (!S.status) S.status = await api("/api/status");
+    await refreshLibrary();
+    if (h[0] === "deal" && h[1]) {
+      S.tab = h[2] || "memo";
+      if (!S.deal || S.deal.id !== h[1]) await loadDeal(h[1]);
+      renderDeal();
+    } else if (h[0] === "job" && h[1]) {
+      renderJob(h[1]);
+    } else if (h[0] === "library") {
+      renderLibraryPage();
+    } else {
+      renderHome();
+    }
+  } catch (e) {
+    $app.innerHTML = `<div class="home"><div class="err">${esc(e.message)}</div><p><a href="#/">Back to start</a></p></div>`;
   }
-  if (h[0] === "deal" && h[1]) {
-    S.tab = h[2] || "memo";
-    if (!S.deal || S.deal.id !== h[1]) await loadDeal(h[1]);
-    renderDeal();
-  } else if (h[0] === "job" && h[1]) {
-    renderJob(h[1]);
-  } else {
-    renderHome();
-  }
+  renderSidebar();
 }
 
 async function loadDeal(id) {
-  $app.innerHTML = `<div class="loading"><span class="spinner"></span>Running analysis…</div>`;
+  $app.innerHTML = `<div class="loading"><span class="spinner"></span>Opening analysis…</div>`;
   const d = await api(`/api/deals/${id}`);
   S.deal = d.deal; S.result = d.result; S.error = d.error; S.dirty = false;
 }
 
-/* ---------------- home ---------------- */
-async function renderHome() {
-  const deals = await api("/api/deals");
-  const st = S.status;
-  const fx = st.fixtures.map((f) => `<button class="btn" data-fx="${esc(f)}">${esc(fixtureLabel(f))}</button>`).join(" ");
+/* ---------------- sidebar / library ---------------- */
+const openMenu = () => document.body.classList.add("menu-open");
+const closeMenu = () => document.body.classList.remove("menu-open");
+document.getElementById("menu-btn").onclick = openMenu;
+document.getElementById("side-close").onclick = closeMenu;
+document.getElementById("scrim").onclick = closeMenu;
+document.getElementById("lib-search").oninput = (e) => { S.q = e.target.value.trim().toLowerCase(); renderSidebar(); };
+document.getElementById("new-btn").onclick = () => { S.staged = []; };
+
+async function refreshLibrary() { S.deals = await api("/api/deals"); }
+const dealName = (d) => d.borrower || "Untitled analysis";
+function groupByDate(deals) {
+  const now = new Date(), day = 864e5;
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const groups = [["Today", []], ["Yesterday", []], ["Previous 7 days", []], ["Earlier", []]];
+  deals.forEach((d) => {
+    const t = d.updated * 1000;
+    groups[t >= startToday ? 0 : t >= startToday - day ? 1 : t >= startToday - 7 * day ? 2 : 3][1].push(d);
+  });
+  return groups.filter(([, l]) => l.length);
+}
+function renderSidebar() {
+  const h = location.hash.replace(/^#\/?/, "").split("/");
+  const cur = h[0] === "deal" ? h[1] : h[0] === "job" ? h[1] : null;
+  const list = (S.deals || []).filter((d) => !S.q || dealName(d).toLowerCase().includes(S.q));
+  const el = document.getElementById("library");
+  el.innerHTML = list.length
+    ? groupByDate(list).map(([g, items]) => `<div class="lib-group">${g}</div>` + items.map((d) => `
+        <a class="lib-item ${d.id === cur ? "active" : ""}" href="#/deal/${esc(d.id)}" title="${esc(dealName(d))}">
+          <span class="dot ${d.deal_type === "cre" ? "cre" : "sb"}"></span><span class="t">${esc(dealName(d))}</span>
+          <button class="x" data-del="${esc(d.id)}" aria-label="Delete" title="Delete">&times;</button></a>`).join("")).join("")
+    : `<div class="lib-empty">${S.q ? "No matches." : "Your analyses will appear here."}</div>`;
+  el.querySelectorAll("[data-del]").forEach((b) => b.onclick = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!confirm("Delete this analysis and its uploaded files?")) return;
+    await api(`/api/deals/${b.dataset.del}`, { method: "DELETE" });
+    if (S.deal && S.deal.id === b.dataset.del) S.deal = null;
+    if (cur === b.dataset.del) location.hash = "#/"; else route();
+  });
+}
+
+function renderLibraryPage() {
+  const list = S.deals || [];
+  const when = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  $app.innerHTML = `<div class="lib-page"><h1>Library</h1>` + (list.length ? list.map((d) => `
+    <a class="lib-card" href="#/deal/${esc(d.id)}"><span class="dot ${d.deal_type === "cre" ? "cre" : "sb"} lib-dot"></span>
+      <div class="main"><div class="name">${esc(dealName(d))}</div><div class="when">${when(d.updated)}</div></div>
+      <span class="tag ${d.deal_type === "cre" ? "cre" : "sb"}">${d.deal_type === "cre" ? "Real estate" : "Small business"}</span></a>`).join("")
+    : '<div class="lib-empty">No analyses yet. Start one with “New analysis”.</div>') + `</div>`;
+}
+
+/* ---------------- home: new analysis ---------------- */
+const RECS = [
+  ["Financial statements", "Last 2–3 years: income statement and balance sheet", true],
+  ["Tax returns", "Business (and owner) returns for the same years", true],
+  ["Projections / pro forma", "3–5 year forecast of revenue and expenses", true],
+  ["Business plan", "Company overview, use of funds, management bios", true],
+  ["Interim statements", "Year-to-date financials, if the year is partly over", false],
+  ["Debt schedule", "Existing loans, balances and payments", false],
+  ["Rent roll", "Real estate: tenants, rents and lease terms", false],
+  ["Appraisal", "Real estate: value of the property", false],
+  ["Project budget", "Real estate: sources & uses, development costs", false],
+];
+S.staged = [];
+
+function renderHome() {
+  const st = S.status, can = st.llm_available;
+  const fx = st.fixtures.map((f) => `<button class="link-btn" data-fx="${esc(f)}">${esc(fixtureLabel(f))}</button>`).join(" · ");
   $app.innerHTML = `
-  <div class="grid2">
-    <div class="card">
-      <h2>New analysis</h2>
-      <div class="muted">Drop the borrower package (financial statements, tax returns, projections, business plan, rent roll, appraisal, budget). PDFs only, scanned is fine.</div>
-      <div id="drop" class="drop ${st.llm_available ? "" : "disabled"}">
-        ${st.llm_available ? "<b>Drag &amp; drop PDFs here</b><br>or click to choose files" : "<b>Uploads need an Anthropic API key on the server.</b><br>Set ANTHROPIC_API_KEY in .env and restart, or load a sample deal."}
+  <div class="home">
+    <h1>What are we underwriting?</h1>
+    <p class="lead">Add the borrower’s documents and get a draft Investment Summary.</p>
+    <div class="composer">
+      <div id="drop" class="drop ${can ? "" : "disabled"}">
+        ${can ? "<b>Drop PDFs here</b><br>or click to choose files" : "<b>Uploading is not available right now.</b><br>Please contact your administrator."}
         <input id="file" type="file" accept="application/pdf" multiple hidden>
       </div>
-      <p class="muted" style="font-size:12px;margin-top:10px">Uploaded documents are sent to the Claude API for reading and deleted from this server after ${st.retention_hours} hours. Every figure in the draft is computed in code and links back to its source page.</p>
-      <h3>Sample deals (Invest Detroit examples)</h3>
-      <div>${fx || '<span class="muted">No fixtures found in samples/fixtures/</span>'}</div>
+      <div id="chips" class="chips"></div>
+      <div class="composer-foot"><span class="hint">PDFs only · scanned copies are fine</span>
+        <button id="go" class="btn primary lg" disabled>Analyze</button></div>
     </div>
-    <div class="card">
-      <h2>Recent analyses</h2>
-      <ul class="list">${deals.map((d) => `<li><a href="#/deal/${esc(d.id)}">${esc(d.borrower || d.id)}</a>
-        <span><span class="tag ${d.deal_type === "cre" ? "cre" : "sb"}">${d.deal_type === "cre" ? "CRE" : "Small Business"}</span>
-        <span class="tag">${esc(d.mode)}</span></span></li>`).join("") || '<li class="muted">None yet</li>'}</ul>
-    </div>
+    <section class="recs"><h2>Documents that help</h2>
+      <div class="rec-grid">${RECS.map(([t, d, core]) => `<div class="rec"><b>${t}${core ? '<span class="badge">Recommended</span>' : ""}</b><span>${d}</span></div>`).join("")}</div>
+    </section>
+    ${fx ? `<div class="examples">Just exploring? Open an example: ${fx}</div>` : ""}
+    <div class="privacy">Documents are removed from our servers after ${st.retention_hours} hours. Every figure in the draft links back to its source page.</div>
   </div>`;
   $app.querySelectorAll("[data-fx]").forEach((b) => b.onclick = async () => {
     const r = await api(`/api/deals/fixture/${b.dataset.fx}`, { method: "POST" });
     location.hash = `#/deal/${r.id}`;
   });
-  const drop = document.getElementById("drop"), file = document.getElementById("file");
-  if (st.llm_available) {
+  const drop = document.getElementById("drop"), file = document.getElementById("file"), go = document.getElementById("go");
+  const paint = () => {
+    document.getElementById("chips").innerHTML = S.staged.map((f, i) => `<div class="chip"><span title="${esc(f.name)}">${esc(f.name)}</span><button data-rm="${i}" aria-label="Remove">&times;</button></div>`).join("");
+    document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { S.staged.splice(+b.dataset.rm, 1); paint(); });
+    go.disabled = !S.staged.length || !can;
+  };
+  const add = (files) => { [...files].filter((f) => /\.pdf$/i.test(f.name)).forEach((f) => S.staged.push(f)); paint(); };
+  if (can) {
     drop.onclick = () => file.click();
-    file.onchange = () => upload(file.files);
+    file.onchange = () => { add(file.files); file.value = ""; };
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("hover"); };
     drop.ondragleave = () => drop.classList.remove("hover");
-    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("hover"); upload(e.dataTransfer.files); };
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("hover"); add(e.dataTransfer.files); };
+    go.onclick = () => upload(S.staged);
   }
+  paint();
 }
 function fixtureLabel(f) {
-  return { kirks_fs2021: "Kirk's Automotive — FY2021 statements (input PDF)", kirks_ic2021: "Kirk's Automotive — May 2021 IC package", ballpoint: "Ballpoint Bagley — CRE" }[f] || f;
+  return { kirks_fs2021: "Kirk's Automotive (statements)", kirks_ic2021: "Kirk's Automotive (full package)", ballpoint: "Ballpoint Bagley (real estate)" }[f] || f;
 }
 
 async function upload(files) {
@@ -99,15 +172,16 @@ async function upload(files) {
   [...files].forEach((f) => fd.append("files", f));
   try {
     const r = await api("/api/deals/upload", { method: "POST", body: fd });
+    S.staged = [];
     location.hash = `#/job/${r.job_id}`;
   } catch (e) { alert(e.message); }
 }
 
 async function renderJob(id) {
   const j = await api(`/api/jobs/${id}`);
-  $app.innerHTML = `<div class="card"><h2>Analyzing documents</h2>
-    <ol class="progress">${j.progress.map((p, i) => `<li>${i === j.progress.length - 1 && j.status === "running" ? '<span class="spinner"></span>' : "✓ "}${esc(p)}</li>`).join("")}</ol>
-    ${j.status === "error" ? `<div class="err">Extraction failed: ${esc(j.error)}</div><a class="btn" href="#/">Back</a>` : ""}</div>`;
+  $app.innerHTML = `<div class="home"><h1>Analyzing documents…</h1><p class="lead">This usually takes a few minutes. You can leave this page; the result will appear in your library.</p>
+    <div class="composer"><ol class="progress">${j.progress.map((p, i) => `<li>${i === j.progress.length - 1 && j.status === "running" ? '<span class="spinner"></span>' : "✓ "}${esc(p)}</li>`).join("")}</ol>
+    ${j.status === "error" ? `<div class="err">Something went wrong reading these documents. ${esc(j.error)}</div><a class="btn" href="#/">Try again</a>` : ""}</div></div>`;
   if (j.status === "running") setTimeout(() => location.hash === `#/job/${id}` && renderJob(id), 1500);
   if (j.status === "done") location.hash = `#/deal/${id}`;
 }
@@ -142,16 +216,15 @@ function renderDeal() {
   const tabs = [["memo", "Investment Summary"], ["inputs", "Inputs & Assumptions"], ["data", "Extracted Data"], ["flags", `Review Flags<span class="count">${flags}</span>`], ["docs", "Documents"]];
   $app.innerHTML = `
   <div class="deal-head">
-    <div><a href="#/" class="muted">← All deals</a><h1>${esc(d.terms.borrower_name || d.id)}</h1>
-      <span class="tag ${d.terms.deal_type === "cre" ? "cre" : "sb"}">${d.terms.deal_type === "cre" ? "Commercial Real Estate" : "Small Business / C&I"}</span>
-      <span class="tag">extraction: ${esc(d.extraction_mode)}</span></div>
+    <div><a href="#/library" class="muted">← Library</a><h1>${esc(d.terms.borrower_name || d.id)}</h1>
+      <span class="tag ${d.terms.deal_type === "cre" ? "cre" : "sb"}">${d.terms.deal_type === "cre" ? "Commercial Real Estate" : "Small Business / C&I"}</span></div>
     <div class="actions">
       <a class="btn primary" href="/api/deals/${d.id}/export.docx">Export Word</a>
-      <a class="btn" href="/api/deals/${d.id}/export.json">Download data (JSON)</a>
+      <a class="btn" href="/api/deals/${d.id}/export.json">Download data</a>
       <button class="btn danger" id="del">Delete</button>
     </div>
   </div>
-  ${d.extraction_mode === "fixture" ? '<div class="notice">Sample deal: extraction loaded from a hand-verified fixture of Invest Detroit\'s example documents (no API call). Every computation, check and narrative below is live.</div>' : ""}
+  ${d.extraction_mode === "fixture" ? '<div class="notice">Example deal built from Invest Detroit\'s sample documents.</div>' : ""}
   ${S.error ? `<div class="err">Analysis error: ${esc(S.error)} — fix the inputs and save.</div>` : ""}
   ${r ? kpis() : ""}
   <div class="tabs">${tabs.map(([k, l]) => `<div class="tab ${S.tab === k ? "active" : ""}" data-tab="${k}">${l}</div>`).join("")}</div>
